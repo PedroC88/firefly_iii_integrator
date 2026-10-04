@@ -65,7 +65,7 @@ services:
       retries: 10
 
   app:
-    image: ${APP_IMAGE:-pedroc88/firefly-iii-integrator:latest}
+    image: ${APP_IMAGE:-pedrocsanchez/firefly-iii-integrator:latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -111,7 +111,7 @@ volumes:
   db_data:
 ```
 
-To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedroc88/firefly-iii-integrator:0.1.0 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
+To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedrocsanchez/firefly-iii-integrator:0.1.0 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
 
 ### Option 3: build from source
 
@@ -142,7 +142,7 @@ Set these as shell variables or in a `.env` file next to `compose.yaml`.
 | `COOKIE_SECURE` | `true` | Marks the login session cookie as `Secure`, so browsers only send it over HTTPS and never over plain HTTP. The cookie is also `HttpOnly` and `SameSite=Lax`. Keep it `true` in production. Browsers drop `Secure` cookies on plain `http://` (except `localhost` in some browsers), so login will not persist; set it to `false` **only** for local testing over HTTP. |
 | `TRUST_PROXY` | `false` | Set to `true` when the app runs behind a reverse proxy (nginx, Caddy, Traefik) that terminates HTTPS. The app then trusts the proxy's `X-Forwarded-*` headers for the client IP (used by login rate limiting) and the HTTPS scheme. Leave `false` if clients connect directly, otherwise they could spoof their IP. |
 | `APP_PORT` | `3000` | Host port that exposes the app. |
-| `APP_IMAGE` | `pedroc88/firefly-iii-integrator:latest` | Image to run; set it to pin a version. |
+| `APP_IMAGE` | `pedrocsanchez/firefly-iii-integrator:latest` | Image to run; set it to pin a version. |
 
 ## Layout
 
