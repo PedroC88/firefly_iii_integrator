@@ -1,0 +1,27 @@
+{
+  "name": "firefly-iii-integrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FireFly III integrator",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@fastify/compress": "^9.2.0",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.5",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "fastify": "^5.12.5",
+    "pg": "^8.23.1",
+    "undici": "^7.30.0",
+    "yaml": "^2.9.1"
+  }
+}
