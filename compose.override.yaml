@@ -1,0 +1,6 @@
+# Loaded automatically in a source checkout: builds the image locally instead of pulling it.
+# Not needed (and not downloaded) for a regular installation.
+services:
+  app:
+    build: .
+    pull_policy: never

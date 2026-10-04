@@ -1,6 +1,7 @@
 {
   "name": "firefly-iii-integrator",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "FireFly III integrator",
   "main": "server.js",

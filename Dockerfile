@@ -4,6 +4,7 @@ COPY src/package.json src/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM node:22-alpine
+LABEL org.opencontainers.image.licenses="MIT"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules

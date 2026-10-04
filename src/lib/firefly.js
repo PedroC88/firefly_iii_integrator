@@ -45,7 +45,6 @@ function responseError(body, status) {
       if (messages.length) return messages.join('; ');
     }
   }
-  if (typeof body === 'string' && body.trim()) return body.trim().slice(0, 500);
   return `FireFly III returned HTTP ${status}.`;
 }
 
@@ -102,6 +101,7 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
             Authorization: `Bearer ${settings.firefly_api_key}`,
           },
           body: JSON.stringify(body),
+          redirect: 'manual',
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         const responseText = await response.text();

@@ -1,5 +1,5 @@
 # Secrets are read from ./secrets/*.txt, which YOU must create before the first start.
-# See README.md ("Installation"). Nothing secret is stored in this file or in the image.
+# See README.MD ("Installation"). Nothing secret is stored in this file or in the image.
 services:
   db:
     image: postgres:16-alpine
@@ -23,7 +23,7 @@ services:
       retries: 10
 
   app:
-    build: .
+    image: ${APP_IMAGE:-pedroc88/firefly-iii-integrator:latest}
     restart: unless-stopped
     depends_on:
       db:
