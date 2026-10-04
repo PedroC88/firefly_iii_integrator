@@ -1,6 +1,6 @@
 # Architecture
 
-- **Stack**: Node 22, Fastify, `pg`, no frontend build step (vanilla JS, one CSS file, gzip/brotli via `@fastify/compress`).
+- **Stack**: Node 26, Fastify, `pg`, no frontend build step (vanilla JS, one CSS file, gzip/brotli via `@fastify/compress`).
 - **Passwords**: scrypt (N=32768, r=8, p=1) with per-user salt. Min 10 chars.
 - **API keys**: AES-256-GCM, key derived (HKDF) from `app_secret`. Never returned to the browser.
 - **Private HTTPS endpoints**: PEM certificates (`.crt`/`.pem`/`.cer`) in `certs/` (mounted read-only at `/certs`) are added to the system trust roots for FireFly III requests (`src/lib/certs.js`); TLS verification stays enabled.
