@@ -23,7 +23,7 @@ services:
       retries: 10
 
   app:
-    image: ${APP_IMAGE:-pedroc88/firefly-iii-integrator:latest}
+    image: ${APP_IMAGE:-pedrocsanchez/firefly-iii-integrator:latest}
     restart: unless-stopped
     depends_on:
       db:
