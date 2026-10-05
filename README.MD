@@ -152,7 +152,7 @@ volumes:
   db_data:
 ```
 
-To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedrocsanchez/firefly-iii-integrator:0.1.1 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
+To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedrocsanchez/firefly-iii-integrator:0.2.0 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
 
 ### Option 3: build from source
 
