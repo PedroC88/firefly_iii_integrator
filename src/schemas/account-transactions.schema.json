@@ -15,6 +15,7 @@
           "type": "object",
           "properties": {
             "destination_account": { "type": "string" },
+            "transaction_type": { "type": "string", "enum": ["transfer", "payment"] },
             "amount": { "type": "number" },
             "foreign_amount": { "type": "number" },
             "foreign_currency": { "type": "string" },
@@ -22,7 +23,7 @@
             "description": { "type": "string" },
             "notes": { "type": "string" }
           },
-          "required": ["destination_account", "amount", "date", "description"],
+          "required": ["destination_account", "transaction_type", "amount", "date", "description"],
           "dependencies": {
             "foreign_amount": ["foreign_currency"],
             "foreign_currency": ["foreign_amount"]
