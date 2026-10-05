@@ -1,6 +1,6 @@
 {
   "name": "firefly-iii-integrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "private": true,
   "description": "FireFly III integrator",
@@ -22,7 +22,7 @@
     "ajv-formats": "^3.0.1",
     "fastify": "^5.12.5",
     "pg": "^8.23.1",
-    "undici": "^7.30.0",
+    "undici": "^8.11.2",
     "yaml": "^2.9.1"
   }
 }
