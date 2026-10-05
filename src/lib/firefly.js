@@ -3,6 +3,9 @@ const { httpError } = require('./validation');
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+// FireFly III has no "payment" type: a payment to an expense account is a withdrawal.
+const FIREFLY_TYPES = { transfer: 'transfer', payment: 'withdrawal' };
+
 function connectionErrorMessage(err, endpoint) {
   const code = err.cause?.code || err.code;
   let hostname;
@@ -65,6 +68,7 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
         index,
         sourceAccount: account.source_account,
         destinationAccount: transaction.destination_account,
+        transactionType: transaction.transaction_type,
         amount: transaction.amount,
         ...(transaction.foreign_amount === undefined ? {} : {
           foreignAmount: transaction.foreign_amount,
@@ -79,7 +83,7 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
       try {
         const body = {
           transactions: [{
-            type: 'transfer',
+            type: FIREFLY_TYPES[transaction.transaction_type],
             date: transaction.date,
             amount: String(transaction.amount),
             description: transaction.description,

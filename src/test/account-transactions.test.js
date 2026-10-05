@@ -9,6 +9,7 @@ const json = JSON.stringify([{
   currency: 'USD',
   transactions: [{
     destination_account: 'Savings',
+    transaction_type: 'transfer',
     amount: 12.5,
     date: '2026-10-04',
     description: 'Transfer',
@@ -22,7 +23,7 @@ test('keeps the requested AccountTransactionsRequest schema in source', () => {
   assert.equal(accountTransactionsSchema.type, 'array');
   assert.equal(accountTransactionsSchema.items.additionalProperties, false);
   assert.deepEqual(accountTransactionsSchema.items.properties.transactions.items.required, [
-    'destination_account', 'amount', 'date', 'description',
+    'destination_account', 'transaction_type', 'amount', 'date', 'description',
   ]);
 });
 
@@ -34,6 +35,7 @@ test('parses valid JSON and converts valid YAML to the same JSON shape', () => {
   currency: USD
   transactions:
     - destination_account: Savings
+      transaction_type: transfer
       amount: 12.5
       date: 2026-10-04
       description: Transfer
@@ -51,11 +53,11 @@ test('rejects invalid schema values including date format and unknown properties
   assert.throws(() => parseAndValidate('[]', 'json'), /fewer than 1 items/);
   assert.throws(() => parseAndValidate('[{"source_account":"Checking","currency":"USD","transactions":[]}]', 'json'), /fewer than 1 items/);
   assert.throws(
-    () => parseAndValidate('[{"source_account":"Checking","currency":"USD","extra":true,"transactions":[{"destination_account":"Savings","amount":1,"date":"04-10-2026","description":"x"}]}]', 'json'),
+    () => parseAndValidate('[{"source_account":"Checking","currency":"USD","extra":true,"transactions":[{"destination_account":"Savings","transaction_type":"transfer","amount":1,"date":"04-10-2026","description":"x"}]}]', 'json'),
     /additional properties/i
   );
   assert.throws(
-    () => parseAndValidate('[{"source_account":"Checking","currency":"USD","transactions":[{"destination_account":"Savings","amount":1,"date":"04-10-2026","description":"x"}]}]', 'json'),
+    () => parseAndValidate('[{"source_account":"Checking","currency":"USD","transactions":[{"destination_account":"Savings","transaction_type":"transfer","amount":1,"date":"04-10-2026","description":"x"}]}]', 'json'),
     /must match format/
   );
 });
@@ -64,6 +66,7 @@ test('posts every transaction independently and retains individual failures', as
   const payload = parseAndValidate(json, 'json');
   payload[0].transactions.push({
     destination_account: 'Investments',
+    transaction_type: 'payment',
     amount: 4,
     date: '2026-10-04',
     description: 'Second transfer',
@@ -86,10 +89,18 @@ test('posts every transaction independently and retains individual failures', as
   assert.equal(calls[0].body.transactions[0].source_name, 'Checking');
   assert.equal(calls[0].body.transactions[0].destination_name, 'Savings');
   assert.equal(calls[0].body.transactions[0].type, 'transfer');
+  assert.equal(calls[1].body.transactions[0].type, 'withdrawal');
   assert.equal(results[0].status, 'succeeded');
   assert.equal(results[0].fireflyId, 42);
   assert.equal(results[1].status, 'failed');
   assert.equal(results[1].message, 'Invalid destination account');
+});
+
+test('rejects missing or unsupported transaction_type values', () => {
+  const withType = (t) => JSON.stringify([{ source_account: 'Checking', currency: 'USD', transactions: [{ destination_account: 'Savings', ...(t && { transaction_type: t }), amount: 1, date: '2026-10-04', description: 'x' }] }]);
+  assert.throws(() => parseAndValidate(withType(null), 'json'), /missing required property transaction_type/);
+  assert.throws(() => parseAndValidate(withType('deposit'), 'json'), /allowed values/);
+  assert.ok(parseAndValidate(withType('payment'), 'json'));
 });
 
 test('requires the user to configure FireFly III settings before posting', async () => {
@@ -126,6 +137,7 @@ test('logs safe network diagnostics and continues posting after a connection fai
   const payload = parseAndValidate(json, 'json');
   payload[0].transactions.push({
     destination_account: 'Investments',
+    transaction_type: 'payment',
     amount: 4,
     date: '2026-10-04',
     description: 'Second transfer',
@@ -182,7 +194,7 @@ test('explains foreign currency errors from FireFly III', async () => {
     }),
   });
   const [result] = await postAccountTransactions(
-    [{ source_account: 'A', currency: 'DOP', transactions: [{ destination_account: 'B USD', amount: 1, date: '2026-01-01', description: 'x' }] }],
+    [{ source_account: 'A', currency: 'DOP', transactions: [{ destination_account: 'B USD', transaction_type: 'transfer', amount: 1, date: '2026-01-01', description: 'x' }] }],
     { firefly_url: 'https://ff.test', firefly_api_key: 'k' },
     fetchImpl,
   );
@@ -193,7 +205,7 @@ test('explains foreign currency errors from FireFly III', async () => {
 test('foreign amount requires a foreign currency and is sent to FireFly III', async () => {
   const { parseAndValidate } = require('../lib/account-transactions');
   const { postAccountTransactions } = require('../lib/firefly');
-  const tx = { destination_account: 'B USD', amount: 100, foreign_amount: 1.7, date: '2026-01-01', description: 'x' };
+  const tx = { destination_account: 'B USD', transaction_type: 'transfer', amount: 100, foreign_amount: 1.7, date: '2026-01-01', description: 'x' };
   const doc = (t) => JSON.stringify([{ source_account: 'A', currency: 'DOP', transactions: [t] }]);
   assert.throws(() => parseAndValidate(doc(tx), 'json'));
   const accounts = parseAndValidate(doc({ ...tx, foreign_currency: 'USD' }), 'json');
