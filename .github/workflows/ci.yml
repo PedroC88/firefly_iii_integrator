@@ -50,7 +50,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Upload image artifact (internal only)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.IMAGE_NAME }}-${{ github.sha }}
           path: ${{ runner.temp }}/image.tar
