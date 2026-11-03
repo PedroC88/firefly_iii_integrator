@@ -3,11 +3,11 @@ WORKDIR /app
 COPY src/package.json src/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Final image: plain Alpine plus only the node binary and its two runtime libraries.
+# Final image: plain Alpine plus only the node binary and its runtime libraries (libstdc++, libatomic).
 # No npm, npx, corepack or yarn, and no Node base-image tooling.
 FROM alpine:3.24.3
 LABEL org.opencontainers.image.licenses="MIT"
-RUN apk upgrade --no-cache && apk add --no-cache libstdc++ \
+RUN apk upgrade --no-cache && apk add --no-cache libstdc++ libatomic \
     && addgroup -S -g 1000 node && adduser -S -u 1000 -G node -s /sbin/nologin node
 COPY --from=deps /usr/local/bin/node /usr/local/bin/node
 ENV NODE_ENV=production
