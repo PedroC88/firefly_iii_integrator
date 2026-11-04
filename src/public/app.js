@@ -72,7 +72,7 @@ function shell(active, content) {
   root.innerHTML = `
     <header class="navbar">
       <span class="brand">FireFly III integrator</span>
-      <nav class="tabs" aria-label="Main">${tab('pdfs', 'Post PDFs')}${tab('file', 'Post file')}</nav>
+      <nav class="tabs" aria-label="Main">${tab('file', 'Post file')}${tab('pdfs', 'Post PDFs')}</nav>
       <span class="spacer"></span>
       ${themeBtn()}
       <div class="menu">
@@ -153,21 +153,178 @@ function pdfsPage() {
 }
 
 function filePage() {
+  const M = window.TxModel;
   shell('file', `<h1>Post file</h1>
     <form id="f">
       <div class="row between toolbar">
-        <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
+        <div class="row">
+          <div class="seg" role="group" aria-label="Editor mode">
+            <button type="button" class="seg-btn" data-mode="json" aria-pressed="true">JSON</button>
+            <button type="button" class="seg-btn" data-mode="ui" aria-pressed="false">UI</button>
+          </div>
+          <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
+        </div>
         <button class="btn" type="submit">Post</button>
       </div>
       <textarea class="editor" name="content" aria-label="File content" spellcheck="false" placeholder="Paste or type your JSON or YAML here"></textarea>
+      <div id="ui" class="tx-ui" hidden></div>
     </form>`);
   const ta = $('textarea');
+  const ui = $('#ui');
+  const fmt = $('select[name=format]');
+  let mode = 'json';
+  let model = [];
+  let syntaxError = null;
+  let repaired = false;
+  let lookups = null;
+  let lookupError = null;
+
+  async function loadLookups() {
+    try { lookups = await api('GET', '/api/files/lookups'); lookupError = null; }
+    catch (err) { lookups = null; lookupError = err.message; }
+    if (mode === 'ui') renderUi();
+  }
+
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); }
   });
+
+  const syncJson = () => { ta.value = JSON.stringify(model, null, 2); syntaxError = null; repaired = false; };
+
+  function loadModel() {
+    const r = M.parseText(ta.value);
+    if (r.ok) { model = r.value; syntaxError = null; repaired = !!r.repaired; } else syntaxError = r.message;
+  }
+
+  const fieldHtml = (path, f, v) => {
+    const wrong = v !== undefined && (f.kind === 'number' ? typeof v !== 'number' : typeof v !== 'string');
+    const val = v === undefined ? '' : (wrong && typeof v !== 'number' ? JSON.stringify(v) : String(v));
+    const id = `fld-${path.replace(/\./g, '-')}`;
+    let input;
+    if (f.kind === 'select') {
+      const opts = [''].concat(f.options);
+      if (val && !f.options.includes(val)) opts.push(val);
+      input = `<select id="${id}" data-p="${path}">${opts.map((o) => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o || '— select —')}</option>`).join('')}</select>`;
+    } else {
+      const ph = f.kind === 'date' ? 'YYYY-MM-DD' : '';
+      input = `<input id="${id}" data-p="${path}" data-kind="${f.kind}" type="text" ${f.kind === 'number' ? 'inputmode="decimal"' : ''} placeholder="${ph}" value="${esc(val)}" autocomplete="off">`;
+    }
+    return `<div class="uf"><label for="${id}">${f.label}${f.required ? ' <span class="req" aria-hidden="true">*</span>' : ''}</label>${input}<p class="uf-err" data-err="${path}"></p></div>`;
+  };
+
+  // Dropdown fed by FireFly III; keeps a value that is not in the list so nothing is silently lost.
+  function lookupField(path, label, v, options) {
+    const val = typeof v === 'string' ? v : (v === undefined ? '' : JSON.stringify(v));
+    const known = options.some((o) => o.value === val);
+    const opts = [{ value: '', label: '— select —' }].concat(options);
+    if (val && !known) opts.push({ value: val, label: `${val} (not found in FireFly III)` });
+    const id = `fld-${path.replace(/\./g, '-')}`;
+    return `<div class="uf"><label for="${id}">${label} <span class="req" aria-hidden="true">*</span></label><select id="${id}" data-p="${path}" data-orphan="${val && !known ? '1' : ''}">${opts.map((o) => `<option value="${esc(o.value)}"${o.value === val ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select><p class="uf-err" data-err="${path}"></p></div>`;
+  }
+
+  const sourceField = (path, v) => (lookups
+    ? lookupField(path, 'Source account', v, lookups.accounts.map((a) => ({ value: a.name, label: a.currency ? `${a.name} (${a.currency})` : a.name })))
+    : fieldHtml(path, { key: path, label: 'Source account', kind: 'text', required: true }, v));
+  const currencyField = (path, v) => (lookups
+    ? lookupField(path, 'Currency', v, lookups.currencies.map((c) => ({ value: c.code, label: c.name ? `${c.code} — ${c.name}` : c.code })))
+    : fieldHtml(path, { key: path, label: 'Currency', kind: 'text', required: true }, v));
+
+  function renderUi() {
+    const groups = M.groupsOf(model);
+    const knownG = ['source_account', 'currency', 'transactions'];
+    const knownT = M.TX_FIELDS.map((f) => f.key);
+    const extras = (obj, known, base) => M.isObj(obj) ? Object.keys(obj).filter((k) => !known.includes(k))
+      .map((k) => `<div class="uf-extra" data-err-row="${base}.${esc(k)}"><code>${esc(k)}: ${esc(JSON.stringify(obj[k]))}</code><span class="uf-err" data-err="${base}.${esc(k)}"></span><button type="button" class="btn danger small" data-act="del" data-p="${base}.${esc(k)}">Remove</button></div>`).join('') : '';
+    const body = groups.map((g, i) => {
+      const o = M.isObj(g) ? g : {};
+      const txs = Array.isArray(o.transactions) ? o.transactions : [];
+      return `<section class="card tx-group" data-card="${i}">
+        <div class="row between"><h2>Account ${i + 1}</h2><button type="button" class="btn danger small" data-act="del" data-p="${i}">Remove account</button></div>
+        <p class="uf-err" data-err="${i}"></p>
+        <div class="grid2">${sourceField(`${i}.source_account`, o.source_account)}${currencyField(`${i}.currency`, o.currency)}</div>
+        ${extras(o, knownG, String(i))}
+        <h3>Transactions</h3>
+        <p class="uf-err" data-err="${i}.transactions"></p>
+        ${txs.map((t, j) => {
+          const p = `${i}.transactions.${j}`; const tt = M.isObj(t) ? t : {};
+          return `<div class="tx-item" data-card="${p}">
+            <div class="row between"><strong>Transaction ${j + 1}</strong><button type="button" class="btn danger small" data-act="del" data-p="${p}">Remove</button></div>
+            <p class="uf-err" data-err="${p}"></p>
+            <div class="grid2">${M.TX_FIELDS.map((f) => fieldHtml(`${p}.${f.key}`, f, tt[f.key])).join('')}</div>
+            ${extras(tt, knownT, p)}
+          </div>`;
+        }).join('')}
+        <button type="button" class="btn secondary small" data-act="add-tx" data-p="${i}">+ Add transaction</button>
+      </section>`;
+    }).join('');
+    ui.innerHTML = `<div id="ui-status"></div><p class="uf-err" data-err=""></p>${body}<button type="button" class="btn secondary" data-act="add-group">+ Add account</button>`;
+    refreshErrors();
+  }
+
+  function refreshErrors() {
+    const errs = M.validate(model);
+    ui.querySelectorAll('select[data-orphan="1"]').forEach((el) => { if (!errs[el.dataset.p]) errs[el.dataset.p] = 'Not found in FireFly III. Pick one from the list.'; });
+    ui.querySelectorAll('[data-err]').forEach((el) => {
+      const m = errs[el.dataset.err];
+      el.textContent = m || '';
+      el.hidden = !m;
+      const input = el.previousElementSibling;
+      if (input && input.matches('[data-p]')) { input.classList.toggle('invalid', !!m); input.setAttribute('aria-invalid', m ? 'true' : 'false'); }
+    });
+    ui.querySelectorAll('[data-card]').forEach((c) => c.classList.toggle('has-error', Object.keys(errs).some((k) => k === c.dataset.card || k.startsWith(`${c.dataset.card}.`))));
+    const n = Object.keys(errs).length;
+    const notes = [];
+    if (syntaxError) notes.push(`<div class="banner err" role="alert">The JSON has a syntax error (${esc(syntaxError)}). Showing the last readable values; the first change here replaces the JSON with this form's content. Switch to JSON to fix it by hand.</div>`);
+    else if (repaired) notes.push('<div class="banner" role="status">The JSON had comments or trailing commas; they will be removed on the next change.</div>');
+    if (n) notes.push(`<div class="banner ${syntaxError ? '' : 'err'}" role="status">${n} issue${n === 1 ? '' : 's'} to fix. Highlighted fields need attention.</div>`);
+    if (lookupError) notes.push(`<div class="banner" role="status">Could not load accounts and currencies from FireFly III (${esc(lookupError)}). Source account and currency are plain text boxes until this is fixed in Settings.</div>`);
+    $('#ui-status').innerHTML = notes.join('');
+    return errs;
+  }
+
+  function apply(path, value) {
+    model = M.setPath(model, path, value);
+    syncJson();
+  }
+
+  ui.addEventListener('input', (e) => {
+    const el = e.target.closest('[data-p]');
+    if (!el || el.dataset.act) return;
+    const v = el.dataset.kind === 'number' ? M.coerceNumber(el.value) : (el.value === '' ? undefined : el.value);
+    if (el.dataset.orphan) el.dataset.orphan = '';
+    apply(el.dataset.p, v);
+    refreshErrors();
+  });
+  ui.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const p = b.dataset.p;
+    if (b.dataset.act === 'del') apply(p, undefined);
+    else if (b.dataset.act === 'add-tx') { const list = M.groupsOf(model)[Number(p)]; if (!Array.isArray(list?.transactions)) apply(`${p}.transactions`, []); apply(`${p}.transactions.${M.groupsOf(model)[Number(p)].transactions.length}`, M.newTransaction()); }
+    else if (b.dataset.act === 'add-group') apply(`${M.groupsOf(model).length}`, M.newGroup());
+    renderUi();
+  });
+
+  function setMode(next) {
+    if (next === mode) return;
+    mode = next;
+    document.querySelectorAll('.seg-btn').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.mode === mode)));
+    if (mode === 'ui') {
+      fmt.value = 'json';
+      loadModel();
+      ta.hidden = true; ui.hidden = false; fmt.disabled = true;
+      renderUi();
+      loadLookups();
+    } else {
+      ta.hidden = false; ui.hidden = true; fmt.disabled = false;
+    }
+  }
+  document.querySelectorAll('.seg-btn').forEach((x) => x.addEventListener('click', () => setMode(x.dataset.mode)));
+
   onSubmit($('#f'), async (d) => {
     if (!d.content.trim()) { notify.warning('Enter some content first.'); return; }
-    const response = await api('POST', '/api/files/post', d);
+    if (mode === 'ui' && (Object.keys(M.validate(model)).length || ui.querySelector('[data-orphan="1"]'))) { notify.warning('Fix the highlighted fields first.'); return; }
+    const response = await api('POST', '/api/files/post', { content: d.content, format: mode === 'ui' ? 'json' : d.format });
     showTransactionResults(response.results);
   });
 }
@@ -176,7 +333,7 @@ function settingsPage() {
   shell('', `<h1>Settings</h1>
     <form id="prefs" class="card"><h2>Preferences &amp; FireFly III</h2>
       <label for="defaultTab">Default tab on landing page</label>
-      <select id="defaultTab" name="defaultTab"><option value="pdfs">Post PDFs</option><option value="file">Post file</option></select>
+      <select id="defaultTab" name="defaultTab"><option value="file">Post file</option><option value="pdfs">Post PDFs</option></select>
       <label for="fireflyUrl">FireFly III endpoint</label>
       <input id="fireflyUrl" name="fireflyUrl" type="url" placeholder="https://firefly.example.com" maxlength="500">
       <p class="hint">Use the base URL reachable from the app container (do not add /api/v1/transactions). For FireFly III running on the Docker host, use http://host.docker.internal:PORT; localhost refers to this app container.</p>

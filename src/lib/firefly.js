@@ -141,4 +141,43 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
   return results;
 }
 
-module.exports = { postAccountTransactions, connectionErrorMessage };
+async function fetchAllPages(url, headers, fetchImpl, map) {
+  const out = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const response = await fetchImpl(`${url}${url.includes('?') ? '&' : '?'}page=${page}&limit=200`, {
+      headers, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const text = await response.text();
+    let body;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+    if (!response.ok) throw new Error(responseError(body, response.status));
+    (body?.data || []).forEach((item) => { const v = map(item); if (v) out.push(v); });
+    if (page >= (body?.meta?.pagination?.total_pages || 1)) break;
+  }
+  return out;
+}
+
+// Asset accounts (valid sources) and enabled currencies, for the portal's dropdowns.
+async function fetchLookups(settings, fetchImpl = fetch, logger = null) {
+  if (!settings.firefly_url) throw httpError(400, 'Set your FireFly III endpoint in Settings first.');
+  if (!settings.firefly_api_key) throw httpError(400, 'Set your FireFly III API key in Settings first.');
+  const base = settings.firefly_url.replace(/\/+$/, '');
+  const headers = { Accept: 'application/json', Authorization: `Bearer ${settings.firefly_api_key}` };
+  try {
+    const [accounts, currencies] = await Promise.all([
+      fetchAllPages(`${base}/api/v1/accounts?type=asset`, headers, fetchImpl, (a) => (a.attributes?.name
+        ? { name: a.attributes.name, currency: a.attributes.currency_code || null, active: a.attributes.active !== false } : null)),
+      fetchAllPages(`${base}/api/v1/currencies`, headers, fetchImpl, (c) => (c.attributes?.code && c.attributes.enabled !== false
+        ? { code: c.attributes.code, name: c.attributes.name || '' } : null)),
+    ]);
+    return { accounts: accounts.filter((a) => a.active), currencies };
+  } catch (err) {
+    if (err.name === 'TypeError' || err.name === 'TimeoutError' || err.name === 'AbortError') {
+      logger?.error({ errorName: err.name, causeCode: err.cause?.code || err.code }, 'Unable to load FireFly III lookups');
+      throw httpError(502, err.name === 'TypeError' ? connectionErrorMessage(err, base) : 'Timed out while contacting FireFly III.');
+    }
+    throw httpError(502, err.message || 'Unable to load data from FireFly III.');
+  }
+}
+
+module.exports = { postAccountTransactions, fetchLookups, connectionErrorMessage };

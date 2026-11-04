@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run portal (local)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/server.js",
+      "cwd": "${workspaceFolder}/src",
+      "runtimeExecutable": "${userHome}/.nvm/versions/node/v24.18.0/bin/node",
+      "preLaunchTask": "dev-prereqs",
+      "env": {
+        "DB_HOST": "127.0.0.1",
+        "DB_PASSWORD_FILE": "${workspaceFolder}/secrets/db_password.txt",
+        "APP_SECRET_FILE": "${workspaceFolder}/secrets/app_secret.txt",
+        "CERTS_DIR": "${workspaceFolder}/certs",
+        "HOST": "127.0.0.1",
+        "PORT": "3000",
+        "COOKIE_SECURE": "false"
+      },
+      "serverReadyAction": {
+        "pattern": "Server listening at (https?://[^\\s\"]+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

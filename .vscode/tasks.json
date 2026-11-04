@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev-db",
+      "type": "shell",
+      "command": "bash ${workspaceFolder}/.vscode/start-dev-db.sh",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "npm-install",
+      "type": "shell",
+      "command": "[ -d node_modules ] || npm install",
+      "options": {
+        "cwd": "${workspaceFolder}/src",
+        "env": { "PATH": "${userHome}/.nvm/versions/node/v24.18.0/bin:${env:PATH}" }
+      },
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "dev-prereqs",
+      "dependsOn": ["dev-db", "npm-install"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

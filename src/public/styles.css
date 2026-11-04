@@ -73,3 +73,21 @@ dialog::backdrop{background:#0008}
 .result-message{font-size:.9rem}
 @media(max-width:600px){.grid2{grid-template-columns:1fr}.brand{display:none}.toasts{left:1rem}.editor{min-height:40vh}.navbar{padding:0 .5rem}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.seg-btn{padding:.5rem .9rem;font:inherit;font-weight:600;border:0;background:var(--bg);color:var(--text);cursor:pointer}
+.seg-btn[aria-pressed=true]{background:var(--primary);color:var(--primary-text)}
+.tx-ui h3{font-size:1rem;margin:1rem 0 .5rem}
+.tx-item{border:1px solid var(--border);border-radius:var(--radius);padding:.75rem;margin-bottom:.75rem}
+.tx-item .uf label,.tx-group>.grid2 .uf label{margin-top:.5rem}
+.has-error{border-color:var(--err)}
+.tx-item.has-error{border-left:4px solid var(--err)}
+.card.has-error{border-left:4px solid var(--err)}
+input.invalid,select.invalid{border-color:var(--err);background:var(--err-bg)}
+.uf-err{color:var(--err);font-size:.85rem;margin:.2rem 0 0}
+.uf-err[hidden]{display:none}
+.req{color:var(--err)}
+.uf-extra{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.5rem 0}
+.banner.err{border-color:var(--err);background:var(--err-bg);color:var(--err)}
+#ui-status .banner{margin-bottom:.75rem}
+[hidden]{display:none!important}

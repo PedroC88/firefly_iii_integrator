@@ -216,3 +216,23 @@ test('foreign amount requires a foreign currency and is sent to FireFly III', as
   assert.equal(sent.foreign_amount, '1.7');
   assert.equal(sent.foreign_currency_code, 'USD');
 });
+
+test('fetchLookups returns active asset accounts and enabled currencies across pages', async () => {
+  const { fetchLookups } = require('../lib/firefly');
+  const calls = [];
+  const fetchImpl = async (url, opts) => {
+    calls.push(url);
+    assert.match(opts.headers.Authorization, /^Bearer /);
+    const u = new URL(url);
+    const page = Number(u.searchParams.get('page'));
+    const body = u.pathname.endsWith('/accounts')
+      ? { data: page === 1 ? [{ attributes: { name: 'Checking', currency_code: 'USD', active: true } }, { attributes: { name: 'Old', active: false } }] : [{ attributes: { name: 'Savings', currency_code: 'EUR' } }], meta: { pagination: { total_pages: 2 } } }
+      : { data: [{ attributes: { code: 'USD', name: 'Dollar', enabled: true } }, { attributes: { code: 'XXX', enabled: false } }], meta: { pagination: { total_pages: 1 } } };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const r = await fetchLookups({ firefly_url: 'https://ff.example/', firefly_api_key: 'k' }, fetchImpl);
+  assert.deepStrictEqual(r.accounts.map((a) => a.name), ['Checking', 'Savings']);
+  assert.deepStrictEqual(r.currencies, [{ code: 'USD', name: 'Dollar' }]);
+  assert.ok(calls.some((c) => c.includes('/api/v1/accounts?type=asset&page=2')));
+  await assert.rejects(fetchLookups({ firefly_url: '', firefly_api_key: 'k' }, fetchImpl), /endpoint/);
+});

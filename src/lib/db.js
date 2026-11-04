@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   gender TEXT,
   firefly_url TEXT,
   firefly_api_key_enc TEXT,
-  default_tab TEXT NOT NULL DEFAULT 'pdfs',
+  default_tab TEXT NOT NULL DEFAULT 'file',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at TIMESTAMPTZ
 );
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL
 );
+ALTER TABLE users ALTER COLUMN default_tab SET DEFAULT 'file';
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS system_settings (

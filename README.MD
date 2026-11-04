@@ -8,7 +8,7 @@ A fast, responsive Node.js web app (light/dark themes) that will post data to a 
 - The first account created becomes the **global admin**.
 - Global admins manage users and system settings (currently: *allow new registration*, off by default).
 - Every user has Settings (password, FireFly III endpoint + API key, default tab) and an optional Profile.
-- Tabs: **Post PDFs** (placeholder) and **Post file** (JSON/YAML editor; YAML is converted to JSON, validated against the account-transactions schema in `src/schemas/account-transactions.schema.json`, then each transaction is posted separately to the configured FireFly III endpoint). A results dialog summarizes successes and failures; invalid input is rejected before posting.
+- Tabs: **Post file** (default; JSON/YAML editor with a JSON/UI toggle; YAML is converted to JSON, validated against the account-transactions schema in `src/schemas/account-transactions.schema.json`, then each transaction is posted separately to the configured FireFly III endpoint). A results dialog summarizes successes and failures; invalid input is rejected before posting. **Post PDFs** is a placeholder.
 - Global notifications: success (green), warning (yellow), error (red), info (blue).
 - Sessions: random 256-bit token in an `HttpOnly`, `Secure`, `SameSite=Lax` (`__Host-` prefixed) cookie; only a SHA-256 hash is stored server-side, with a sliding 30-day expiry.
 
