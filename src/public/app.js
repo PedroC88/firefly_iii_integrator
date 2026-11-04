@@ -72,13 +72,14 @@ function shell(active, content) {
   root.innerHTML = `
     <header class="navbar">
       <span class="brand">FireFly III integrator</span>
-      <nav class="tabs" aria-label="Main">${tab('pdfs', 'Post PDFs')}${tab('file', 'Post file')}</nav>
+      <nav class="tabs" aria-label="Main">${tab('file', 'Post file')}${tab('pdfs', 'Post PDFs')}</nav>
       <span class="spacer"></span>
       ${themeBtn()}
       <div class="menu">
         <button class="icon-btn" type="button" id="user-btn" aria-haspopup="true" aria-expanded="false">👤 Account ▾</button>
         <div class="menu-list" role="menu">
           <div class="menu-label">${esc(me.email)}</div><hr>
+          <a href="#/templates" role="menuitem">Templates</a>
           <a href="#/settings" role="menuitem">Settings</a>
           <a href="#/profile" role="menuitem">Profile</a>
           ${me.isAdmin ? '<hr><a href="#/admin/users" role="menuitem">Manage users</a><a href="#/admin/settings" role="menuitem">System settings</a>' : ''}
@@ -152,31 +153,332 @@ function pdfsPage() {
   shell('pdfs', '<h1>Post PDFs</h1><div class="banner" role="status">Not implemented</div>');
 }
 
-function filePage() {
+async function filePage(params = new URLSearchParams()) {
+  const M = window.TxModel;
   shell('file', `<h1>Post file</h1>
     <form id="f">
       <div class="row between toolbar">
-        <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
-        <button class="btn" type="submit">Post</button>
+        <div class="row">
+          <div class="seg" role="group" aria-label="Editor mode">
+            <button type="button" class="seg-btn" data-mode="ui" aria-pressed="false">Easy</button>
+            <button type="button" class="seg-btn" data-mode="json" aria-pressed="true">Expert</button>
+          </div>
+          <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
+        </div>
+        <div class="menu split-btn">
+          <button class="btn" type="submit">Post</button>
+          <button class="btn split-arrow" type="button" id="post-more" aria-haspopup="menu" aria-expanded="false" aria-label="More post options">&#9662;</button>
+          <div class="menu-list" role="menu">
+            <button type="button" role="menuitem" id="load-template">Load template</button>
+            <button type="button" role="menuitem" id="update-template" hidden>Update template</button>
+            <button type="button" role="menuitem" id="save-template">Save as template</button>
+          </div>
+        </div>
       </div>
       <textarea class="editor" name="content" aria-label="File content" spellcheck="false" placeholder="Paste or type your JSON or YAML here"></textarea>
+      <div id="ui" class="tx-ui" hidden></div>
     </form>`);
+  const postMenu = $('.split-btn');
+  $('#post-more').onclick = (e) => { e.stopPropagation(); const o = postMenu.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
+  let template = null;
   const ta = $('textarea');
+  const ui = $('#ui');
+  const fmt = $('select[name=format]');
+  let mode = 'json';
+  let model = [];
+  let syntaxError = null;
+  let repaired = false;
+  let pristine = false;
+  let lookups = null;
+  let lookupError = null;
+
+  async function loadLookups() {
+    try { lookups = await api('GET', '/api/files/lookups'); lookupError = null; }
+    catch (err) { lookups = null; lookupError = err.message; }
+    if (mode === 'ui') renderUi();
+  }
+
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); }
   });
+
+  const syncJson = () => { ta.value = JSON.stringify(model, null, 2); syntaxError = null; repaired = false; };
+
+  function loadModel() {
+    const r = M.parseText(ta.value);
+    pristine = !!r.empty;
+    if (r.ok) { model = r.value; syntaxError = null; repaired = !!r.repaired; } else syntaxError = r.message;
+  }
+
+  const fieldHtml = (path, f, v) => {
+    const wrong = v !== undefined && (f.kind === 'number' ? typeof v !== 'number' : typeof v !== 'string');
+    const val = v === undefined ? '' : (wrong && typeof v !== 'number' ? JSON.stringify(v) : String(v));
+    const id = `fld-${path.replace(/\./g, '-')}`;
+    let input;
+    if (f.kind === 'select') {
+      const opts = [''].concat(f.options);
+      if (val && !f.options.includes(val)) opts.push(val);
+      input = `<select id="${id}" data-p="${path}">${opts.map((o) => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o || '— select —')}</option>`).join('')}</select>`;
+    } else {
+      const ph = f.kind === 'date' ? 'YYYY-MM-DD' : '';
+      input = `<input id="${id}" data-p="${path}" data-kind="${f.kind}" type="text" ${f.kind === 'number' ? 'inputmode="decimal"' : ''} placeholder="${ph}" value="${esc(val)}" autocomplete="off">`;
+    }
+    return `<div class="uf"><label for="${id}">${f.label}${f.required ? ' <span class="req" aria-hidden="true">*</span>' : ''}</label>${input}<p class="uf-err" data-err="${path}"></p></div>`;
+  };
+
+  // Dropdown fed by FireFly III; keeps a value that is not in the list so nothing is silently lost.
+  function lookupField(path, label, v, options) {
+    const val = typeof v === 'string' ? v : (v === undefined ? '' : JSON.stringify(v));
+    const known = options.some((o) => o.value === val);
+    const opts = [{ value: '', label: '— select —' }].concat(options);
+    if (val && !known) opts.push({ value: val, label: `${val} (not found in FireFly III)` });
+    const id = `fld-${path.replace(/\./g, '-')}`;
+    return `<div class="uf"><label for="${id}">${label} <span class="req" aria-hidden="true">*</span></label><select id="${id}" data-p="${path}" data-orphan="${val && !known ? '1' : ''}">${opts.map((o) => `<option value="${esc(o.value)}"${o.value === val ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select><p class="uf-err" data-err="${path}"></p></div>`;
+  }
+
+  const sourceField = (path, v) => (lookups
+    ? lookupField(path, 'Source account', v, lookups.accounts.map((a) => ({ value: a.name, label: a.currency ? `${a.name} (${a.currency})` : a.name })))
+    : fieldHtml(path, { key: path, label: 'Source account', kind: 'text', required: true }, v));
+  const currencyField = (path, v) => (lookups
+    ? lookupField(path, 'Currency', v, lookups.currencies.map((c) => ({ value: c.code, label: c.name ? `${c.code} — ${c.name}` : c.code })))
+    : fieldHtml(path, { key: path, label: 'Currency', kind: 'text', required: true }, v));
+
+  function renderUi() {
+    const groups = M.groupsOf(model);
+    const knownG = ['source_account', 'currency', 'transactions'];
+    const knownT = M.TX_FIELDS.map((f) => f.key);
+    const extras = (obj, known, base) => M.isObj(obj) ? Object.keys(obj).filter((k) => !known.includes(k))
+      .map((k) => `<div class="uf-extra" data-err-row="${base}.${esc(k)}"><code>${esc(k)}: ${esc(JSON.stringify(obj[k]))}</code><span class="uf-err" data-err="${base}.${esc(k)}"></span><button type="button" class="btn danger small" data-act="del" data-p="${base}.${esc(k)}">Remove</button></div>`).join('') : '';
+    const body = groups.map((g, i) => {
+      const o = M.isObj(g) ? g : {};
+      const txs = Array.isArray(o.transactions) ? o.transactions : [];
+      return `<section class="card tx-group" data-card="${i}">
+        <div class="row between"><h2>Account ${i + 1}</h2><button type="button" class="btn danger small" data-act="del" data-p="${i}">Remove account</button></div>
+        <p class="uf-err" data-err="${i}"></p>
+        <div class="grid2">${sourceField(`${i}.source_account`, o.source_account)}${currencyField(`${i}.currency`, o.currency)}</div>
+        ${extras(o, knownG, String(i))}
+        <h3>Transactions</h3>
+        <p class="uf-err" data-err="${i}.transactions"></p>
+        ${txs.map((t, j) => {
+          const p = `${i}.transactions.${j}`; const tt = M.isObj(t) ? t : {};
+          return `<div class="tx-item" data-card="${p}">
+            <div class="row between"><strong>Transaction ${j + 1}</strong><button type="button" class="btn danger small" data-act="del" data-p="${p}">Remove</button></div>
+            <p class="uf-err" data-err="${p}"></p>
+            <div class="grid2">${M.TX_FIELDS.map((f) => fieldHtml(`${p}.${f.key}`, f, tt[f.key])).join('')}</div>
+            ${extras(tt, knownT, p)}
+          </div>`;
+        }).join('')}
+        <button type="button" class="btn secondary small" data-act="add-tx" data-p="${i}">+ Add transaction</button>
+      </section>`;
+    }).join('');
+    ui.innerHTML = `<div id="ui-status"></div><p class="uf-err" data-err=""></p>${body}<button type="button" class="btn secondary" data-act="add-group">+ Add account</button>`;
+    refreshErrors();
+  }
+
+  function refreshErrors() {
+    const errs = pristine ? {} : M.validate(model);
+    ui.querySelectorAll('select[data-orphan="1"]').forEach((el) => { if (!errs[el.dataset.p]) errs[el.dataset.p] = 'Not found in FireFly III. Pick one from the list.'; });
+    ui.querySelectorAll('[data-err]').forEach((el) => {
+      const m = errs[el.dataset.err];
+      el.textContent = m || '';
+      el.hidden = !m;
+      const input = el.previousElementSibling;
+      if (input && input.matches('[data-p]')) { input.classList.toggle('invalid', !!m); input.setAttribute('aria-invalid', m ? 'true' : 'false'); }
+    });
+    ui.querySelectorAll('[data-card]').forEach((c) => c.classList.toggle('has-error', Object.keys(errs).some((k) => k === c.dataset.card || k.startsWith(`${c.dataset.card}.`))));
+    const n = Object.keys(errs).length;
+    const notes = [];
+    if (syntaxError) notes.push(`<div class="banner err" role="alert">The JSON has a syntax error (${esc(syntaxError)}). Showing the last readable values; the first change here replaces the JSON with this form's content. Switch to JSON to fix it by hand.</div>`);
+    else if (repaired) notes.push('<div class="banner" role="status">The JSON had comments or trailing commas; they will be removed on the next change.</div>');
+    if (n) notes.push(`<div class="banner ${syntaxError ? '' : 'err'}" role="status">${n} issue${n === 1 ? '' : 's'} to fix. Highlighted fields need attention.</div>`);
+    if (lookupError) notes.push(`<div class="banner" role="status">Could not load accounts and currencies from FireFly III (${esc(lookupError)}). Source account and currency are plain text boxes until this is fixed in Settings.</div>`);
+    $('#ui-status').innerHTML = notes.join('');
+    return errs;
+  }
+
+  function apply(path, value) {
+    model = M.setPath(model, path, value);
+    pristine = false;
+    syncJson();
+  }
+
+  ui.addEventListener('input', (e) => {
+    const el = e.target.closest('[data-p]');
+    if (!el || el.dataset.act) return;
+    const v = el.dataset.kind === 'number' ? M.coerceNumber(el.value) : (el.value === '' ? undefined : el.value);
+    if (el.dataset.orphan) el.dataset.orphan = '';
+    apply(el.dataset.p, v);
+    refreshErrors();
+  });
+  ui.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const p = b.dataset.p;
+    if (b.dataset.act === 'del') apply(p, undefined);
+    else if (b.dataset.act === 'add-tx') { const list = M.groupsOf(model)[Number(p)]; if (!Array.isArray(list?.transactions)) apply(`${p}.transactions`, []); apply(`${p}.transactions.${M.groupsOf(model)[Number(p)].transactions.length}`, M.newTransaction()); }
+    else if (b.dataset.act === 'add-group') apply(`${M.groupsOf(model).length}`, M.newGroup());
+    renderUi();
+  });
+
+  let currentFmt = fmt.value;
+  fmt.addEventListener('change', async () => {
+    const to = fmt.value;
+    const from = currentFmt;
+    fmt.disabled = true;
+    try {
+      const r = await api('POST', '/api/files/convert', { from, to, content: ta.value });
+      ta.value = r.content;
+      currentFmt = to;
+    } catch (err) {
+      fmt.value = from;
+      notify.error(err.message);
+    } finally {
+      fmt.disabled = mode === 'ui';
+    }
+  });
+
+  async function setMode(next) {
+    if (next === mode) return;
+    if (next === 'ui' && currentFmt !== 'json') {
+      try { ta.value = (await api('POST', '/api/files/convert', { from: currentFmt, to: 'json', content: ta.value })).content; }
+      catch (err) { notify.error(err.message); return; }
+      fmt.value = 'json'; currentFmt = 'json';
+    }
+    mode = next;
+    document.querySelectorAll('.seg-btn').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.mode === mode)));
+    if (mode === 'ui') {
+      loadModel();
+      ta.hidden = true; ui.hidden = false; fmt.disabled = true; fmt.hidden = true;
+      renderUi();
+      loadLookups();
+    } else {
+      ta.hidden = false; ui.hidden = true; fmt.disabled = false; fmt.hidden = false;
+    }
+  }
+  document.querySelectorAll('.seg-btn').forEach((x) => x.addEventListener('click', () => setMode(x.dataset.mode)));
+
+  const templatePayload = (name) => ({ name, format: mode === 'ui' ? 'json' : fmt.value, content: ta.value });
+  const requireContent = () => { if (ta.value.trim()) return true; notify.warning('Enter some content first.'); return false; };
+
+  $('#save-template').onclick = () => {
+    postMenu.classList.remove('open');
+    if (!requireContent()) return;
+    const dlg = dialog(`<form id="tn" method="dialog"><h2>Save as template</h2>
+      <label for="tname">Template name</label><input id="tname" name="name" required maxlength="100" autocomplete="off" value="${esc(template?.name ?? '')}">
+      <div class="actions"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+    $('#cancel', dlg).onclick = () => dlg.close();
+    $('#tn', dlg).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('button[type=submit]', dlg);
+      btn.disabled = true;
+      try {
+        template = await api('POST', '/api/templates', templatePayload($('#tname', dlg).value));
+        $('#update-template').hidden = false;
+        dlg.close();
+        notify.success('Template saved.');
+      } catch (err) { notify.error(err.message); btn.disabled = false; }
+    });
+  };
+
+  $('#update-template').onclick = async () => {
+    postMenu.classList.remove('open');
+    if (!template || !requireContent()) return;
+    try {
+      template = await api('PUT', `/api/templates/${template.id}`, templatePayload(template.name));
+      notify.success(`Template "${template.name}" updated.`);
+    } catch (err) { notify.error(err.message); }
+  };
+
+  async function applyTemplate(t) {
+    let { content, format } = t;
+    if (mode === 'ui' && format !== 'json') {
+      content = (await api('POST', '/api/files/convert', { from: format, to: 'json', content })).content;
+      format = 'json';
+    }
+    template = t;
+    ta.value = content;
+    fmt.value = format;
+    currentFmt = format;
+    $('#update-template').hidden = false;
+    $('h1').textContent = `Post file — ${t.name}`;
+    if (mode === 'ui') { loadModel(); renderUi(); }
+  }
+
+  $('#load-template').onclick = async () => {
+    postMenu.classList.remove('open');
+    let list;
+    try { list = await api('GET', '/api/templates'); } catch (err) { notify.error(err.message); return; }
+    if (!list.length) { notify.info('You have no templates yet.'); return; }
+    const dlg = dialog(`<form id="lt" method="dialog"><h2>Load template</h2>
+      <label for="tsel">Template</label>
+      <select id="tsel">${list.map((t) => `<option value="${t.id}"${template?.id === t.id ? ' selected' : ''}>${esc(t.name)} (${esc(t.format)})</option>`).join('')}</select>
+      <p class="hint">This replaces the current content.</p>
+      <div class="actions"><button class="btn" type="submit">Load</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+    $('#cancel', dlg).onclick = () => dlg.close();
+    $('#lt', dlg).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await applyTemplate(await api('GET', `/api/templates/${$('#tsel', dlg).value}`));
+        dlg.close();
+      } catch (err) { notify.error(err.message); }
+    });
+  };
+
+  await setMode('ui');
+  const templateId = params.get('template');
+  if (templateId) {
+    try { await applyTemplate(await api('GET', `/api/templates/${encodeURIComponent(templateId)}`)); }
+    catch (err) { notify.error(err.message); }
+  }
+
   onSubmit($('#f'), async (d) => {
     if (!d.content.trim()) { notify.warning('Enter some content first.'); return; }
-    const response = await api('POST', '/api/files/post', d);
+    if (mode === 'ui' && (Object.keys(M.validate(model)).length || ui.querySelector('[data-orphan="1"]'))) { notify.warning('Fix the highlighted fields first.'); return; }
+    const response = await api('POST', '/api/files/post', { content: d.content, format: mode === 'ui' ? 'json' : d.format });
     showTransactionResults(response.results);
   });
+}
+
+async function templatesPage() {
+  const list = await api('GET', '/api/templates');
+  shell('', `<h1>Templates</h1>
+    ${list.length ? `<div class="card table-wrap"><table><thead><tr><th>Name</th><th>Format</th><th>Last updated</th><th></th></tr></thead><tbody>
+    ${list.map((t) => `<tr data-id="${t.id}"><td>${esc(t.name)}</td><td><span class="badge">${esc(t.format)}</span></td><td>${new Date(t.updatedAt).toLocaleString()}</td>
+      <td class="row"><a class="btn small secondary" href="#/file?template=${t.id}">Edit</a>
+      <button class="btn small secondary" type="button" data-act="rename">Rename</button>
+      <button class="btn small danger" type="button" data-act="del">Delete</button></td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="banner" role="status">No templates yet. Use "Save as template" from the Post file page.</div>'}`);
+  root.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
+    const row = btn.closest('[data-id]');
+    const id = row.dataset.id;
+    const t = list.find((x) => x.id === id);
+    if (btn.dataset.act === 'del') {
+      if (!(await confirmDialog(`Delete template "${t.name}"?`))) return;
+      try { await api('DELETE', `/api/templates/${id}`); notify.success('Template deleted.'); await templatesPage(); } catch (err) { notify.error(err.message); }
+    } else {
+      const dlg = dialog(`<form id="rn" method="dialog"><h2>Rename template</h2><label for="rname">Template name</label>
+        <input id="rname" required maxlength="100" autocomplete="off" value="${esc(t.name)}">
+        <div class="actions"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+      $('#cancel', dlg).onclick = () => dlg.close();
+      $('#rn', dlg).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const full = await api('GET', `/api/templates/${id}`);
+          await api('PUT', `/api/templates/${id}`, { name: $('#rname', dlg).value, format: full.format, content: full.content });
+          dlg.close();
+          notify.success('Template renamed.');
+          await templatesPage();
+        } catch (err) { notify.error(err.message); }
+      });
+    }
+  }));
 }
 
 function settingsPage() {
   shell('', `<h1>Settings</h1>
     <form id="prefs" class="card"><h2>Preferences &amp; FireFly III</h2>
       <label for="defaultTab">Default tab on landing page</label>
-      <select id="defaultTab" name="defaultTab"><option value="pdfs">Post PDFs</option><option value="file">Post file</option></select>
+      <select id="defaultTab" name="defaultTab"><option value="file">Post file</option><option value="pdfs">Post PDFs</option></select>
       <label for="fireflyUrl">FireFly III endpoint</label>
       <input id="fireflyUrl" name="fireflyUrl" type="url" placeholder="https://firefly.example.com" maxlength="500">
       <p class="hint">Use the base URL reachable from the app container (do not add /api/v1/transactions). For FireFly III running on the Docker host, use http://host.docker.internal:PORT; localhost refers to this app container.</p>
@@ -315,13 +617,13 @@ function forbidden() { notify.error('Global admin access required.'); location.h
 
 // ---- Router ----
 const routes = {
-  '/pdfs': pdfsPage, '/file': filePage, '/settings': settingsPage, '/profile': profilePage,
+  '/pdfs': pdfsPage, '/file': filePage, '/templates': templatesPage, '/settings': settingsPage, '/profile': profilePage,
   '/admin/users': adminUsersPage, '/admin/settings': adminSettingsPage,
 };
 const publicRoutes = { '/login': loginPage, '/register': registerPage };
 
 async function route() {
-  const path = location.hash.slice(1) || '/';
+  const [path, query = ''] = (location.hash.slice(1) || '/').split('?');
   try {
     if (!me) {
       if (publicRoutes[path]) return await publicRoutes[path]();
@@ -329,7 +631,7 @@ async function route() {
       return;
     }
     if (path === '/' || publicRoutes[path]) { location.replace('#/' + me.defaultTab); return; }
-    await (routes[path] || (() => { location.replace('#/' + me.defaultTab); }))();
+    await (routes[path] || (() => { location.replace('#/' + me.defaultTab); }))(new URLSearchParams(query));
   } catch (err) {
     if (err.status === 401) { me = null; location.hash = '#/login'; } else notify.error(err.message);
   }

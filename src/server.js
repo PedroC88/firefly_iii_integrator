@@ -48,6 +48,7 @@ async function main() {
   await app.register(require('./routes/account'));
   await app.register(require('./routes/admin'));
   await app.register(require('./routes/files'));
+  await app.register(require('./routes/templates'));
 
   await app.register(require('@fastify/static'), { root: path.join(__dirname, 'public'), maxAge: '1h', immutable: false });
 

@@ -1,11 +1,42 @@
 'use strict';
 const { httpError } = require('../lib/validation');
-const { parseAndValidate } = require('../lib/account-transactions');
-const { postAccountTransactions } = require('../lib/firefly');
+const { parseAndValidate, convertFormat } = require('../lib/account-transactions');
+const { postAccountTransactions, fetchLookups } = require('../lib/firefly');
 const { decrypt } = require('../lib/security');
 const { createTrustedFetch } = require('../lib/certs');
 
 module.exports = async function (app) {
+  app.get('/api/files/lookups', { preHandler: app.requireUser }, async (req) => {
+    let apiKey;
+    try {
+      apiKey = req.user.firefly_api_key_enc ? decrypt(req.user.firefly_api_key_enc) : null;
+    } catch (err) {
+      req.log.error({ err, userId: req.user.id }, 'Unable to decrypt FireFly III API key');
+      throw httpError(409, 'Unable to read your saved FireFly III API key. Please save it again in Settings.');
+    }
+    const trusted = createTrustedFetch();
+    try {
+      return await fetchLookups({ firefly_url: req.user.firefly_url, firefly_api_key: apiKey }, trusted.fetch, req.log);
+    } finally {
+      await trusted.close();
+    }
+  });
+
+  app.post(
+    '/api/files/convert',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['from', 'to', 'content'],
+          properties: { from: { enum: ['json', 'yaml'] }, to: { enum: ['json', 'yaml'] }, content: { type: 'string', maxLength: 1000000 } },
+        },
+      },
+    },
+    async (req) => ({ content: convertFormat(req.body.content, req.body.from, req.body.to) })
+  );
+
   app.post(
     '/api/files/post',
     {
