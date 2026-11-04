@@ -43,7 +43,7 @@ async function api(method, url, body) {
 }
 
 // Wraps a submit handler: disables the button, reports errors as notifications.
-function onSubmit(form, fn) {
+function onSubmit(form, fn, onDone) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('button[type=submit]', form);
@@ -53,7 +53,7 @@ function onSubmit(form, fn) {
       if (err.status === 401 && me) { me = null; notify.warning('Your session expired. Please sign in again.'); location.hash = '#/login'; }
       else notify.error(err.message);
     }
-    finally { btn && (btn.disabled = false); }
+    finally { btn && (btn.disabled = false); onDone && onDone(); }
   });
 }
 
@@ -153,6 +153,8 @@ function pdfsPage() {
   shell('pdfs', '<h1>Post PDFs</h1><div class="banner" role="status">Not implemented</div>');
 }
 
+const TRASH_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+
 async function filePage(params = new URLSearchParams()) {
   const M = window.TxModel;
   shell('file', `<h1>Post file</h1>
@@ -166,7 +168,7 @@ async function filePage(params = new URLSearchParams()) {
           <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
         </div>
         <div class="menu split-btn">
-          <button class="btn" type="submit">Post</button>
+          <button class="btn" type="submit" id="post-btn" disabled>Post</button>
           <button class="btn split-arrow" type="button" id="post-more" aria-haspopup="menu" aria-expanded="false" aria-label="More post options">&#9662;</button>
           <div class="menu-list" role="menu">
             <button type="button" role="menuitem" id="load-template">Load template</button>
@@ -202,6 +204,37 @@ async function filePage(params = new URLSearchParams()) {
     if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); }
   });
 
+  const postBtn = $('#post-btn');
+  let checkSeq = 0;
+  let checkTimer = null;
+  const setPostEnabled = (ok, why) => { postBtn.disabled = !ok; postBtn.title = ok ? '' : (why || 'Fix the errors to enable posting'); };
+
+  // The Post button is only enabled when the current content passes the same checks the server applies.
+  function updatePostState() {
+    const seq = ++checkSeq;
+    clearTimeout(checkTimer);
+    if (mode === 'ui') {
+      const ok = !syntaxError && !Object.keys(M.validate(model)).length && !ui.querySelector('[data-orphan="1"]');
+      setPostEnabled(ok);
+      return;
+    }
+    if (!ta.value.trim()) { setPostEnabled(false, 'Enter some content first'); return; }
+    const check = (text) => {
+      let value;
+      try { value = JSON.parse(text); } catch { setPostEnabled(false, 'The content is not valid'); return; }
+      setPostEnabled(!Object.keys(M.validate(value)).length);
+    };
+    if (fmt.value === 'json') { check(ta.value); return; }
+    setPostEnabled(false, 'Checking…');
+    checkTimer = setTimeout(async () => {
+      try {
+        const r = await api('POST', '/api/files/convert', { from: 'yaml', to: 'json', content: ta.value });
+        if (seq === checkSeq) check(r.content);
+      } catch { if (seq === checkSeq) setPostEnabled(false, 'The content is not valid'); }
+    }, 400);
+  }
+  ta.addEventListener('input', updatePostState);
+
   const syncJson = () => { ta.value = JSON.stringify(model, null, 2); syntaxError = null; repaired = false; };
 
   function loadModel() {
@@ -220,8 +253,12 @@ async function filePage(params = new URLSearchParams()) {
       if (val && !f.options.includes(val)) opts.push(val);
       input = `<select id="${id}" data-p="${path}">${opts.map((o) => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o || '— select —')}</option>`).join('')}</select>`;
     } else {
-      const ph = f.kind === 'date' ? 'YYYY-MM-DD' : '';
+      const ph = f.kind === 'date' ? 'YYYY-MM-DD or "today"' : '';
       input = `<input id="${id}" data-p="${path}" data-kind="${f.kind}" type="text" ${f.kind === 'number' ? 'inputmode="decimal"' : ''} placeholder="${ph}" value="${esc(val)}" autocomplete="off">`;
+      if (f.kind === 'date') {
+        // Text box for typing (accepts "today"); the transparent native date input over the button opens the OS picker, which also works on mobile.
+        input = `<div class="date-field">${input}<span class="date-pick" title="Pick a date"><span aria-hidden="true">&#128197;</span><input type="date" tabindex="-1" aria-label="Pick a date" data-pick-for="${id}" value="${/^\d{4}-\d{2}-\d{2}$/.test(val) ? esc(val) : ''}"></span></div>`;
+      }
     }
     return `<div class="uf"><label for="${id}">${f.label}${f.required ? ' <span class="req" aria-hidden="true">*</span>' : ''}</label>${input}<p class="uf-err" data-err="${path}"></p></div>`;
   };
@@ -245,7 +282,7 @@ async function filePage(params = new URLSearchParams()) {
 
   function renderUi() {
     const groups = M.groupsOf(model);
-    const knownG = ['source_account', 'currency', 'transactions'];
+    const knownG = ['source_account', 'date', 'currency', 'transactions'];
     const knownT = M.TX_FIELDS.map((f) => f.key);
     const extras = (obj, known, base) => M.isObj(obj) ? Object.keys(obj).filter((k) => !known.includes(k))
       .map((k) => `<div class="uf-extra" data-err-row="${base}.${esc(k)}"><code>${esc(k)}: ${esc(JSON.stringify(obj[k]))}</code><span class="uf-err" data-err="${base}.${esc(k)}"></span><button type="button" class="btn danger small" data-act="del" data-p="${base}.${esc(k)}">Remove</button></div>`).join('') : '';
@@ -255,14 +292,21 @@ async function filePage(params = new URLSearchParams()) {
       return `<section class="card tx-group" data-card="${i}">
         <div class="row between"><h2>Account ${i + 1}</h2><button type="button" class="btn danger small" data-act="del" data-p="${i}">Remove account</button></div>
         <p class="uf-err" data-err="${i}"></p>
-        <div class="grid2">${sourceField(`${i}.source_account`, o.source_account)}${currencyField(`${i}.currency`, o.currency)}</div>
+        <div class="grid2">${sourceField(`${i}.source_account`, o.source_account)}${currencyField(`${i}.currency`, o.currency)}${fieldHtml(`${i}.date`, { key: 'date', label: 'Date (default for transactions without one)', kind: 'date' }, o.date)}</div>
         ${extras(o, knownG, String(i))}
         <h3>Transactions</h3>
         <p class="uf-err" data-err="${i}.transactions"></p>
         ${txs.map((t, j) => {
           const p = `${i}.transactions.${j}`; const tt = M.isObj(t) ? t : {};
           return `<div class="tx-item" data-card="${p}">
-            <div class="row between"><strong>Transaction ${j + 1}</strong><button type="button" class="btn danger small" data-act="del" data-p="${p}">Remove</button></div>
+            <div class="row between"><strong>Transaction ${j + 1}</strong><div class="tx-actions" data-tx="${p}">
+              <div class="menu split-btn">
+                <button type="button" class="btn secondary small" data-tx-act="copy">Copy</button>
+                <button type="button" class="btn secondary small split-arrow" data-tx-act="menu" aria-haspopup="menu" aria-expanded="false" aria-label="More copy options">&#9662;</button>
+                <div class="menu-list" role="menu"><button type="button" role="menuitem" data-tx-act="move">Move</button></div>
+              </div>
+              <button type="button" class="icon-btn trash-btn" data-act="del" data-p="${p}" aria-label="Remove transaction ${j + 1}" title="Remove transaction">${TRASH_SVG}</button>
+            </div></div>
             <p class="uf-err" data-err="${p}"></p>
             <div class="grid2">${M.TX_FIELDS.map((f) => fieldHtml(`${p}.${f.key}`, f, tt[f.key])).join('')}</div>
             ${extras(tt, knownT, p)}
@@ -282,7 +326,8 @@ async function filePage(params = new URLSearchParams()) {
       const m = errs[el.dataset.err];
       el.textContent = m || '';
       el.hidden = !m;
-      const input = el.previousElementSibling;
+      const prev = el.previousElementSibling;
+      const input = prev?.classList.contains('date-field') ? prev.querySelector('[data-p]') : prev;
       if (input && input.matches('[data-p]')) { input.classList.toggle('invalid', !!m); input.setAttribute('aria-invalid', m ? 'true' : 'false'); }
     });
     ui.querySelectorAll('[data-card]').forEach((c) => c.classList.toggle('has-error', Object.keys(errs).some((k) => k === c.dataset.card || k.startsWith(`${c.dataset.card}.`))));
@@ -293,6 +338,7 @@ async function filePage(params = new URLSearchParams()) {
     if (n) notes.push(`<div class="banner ${syntaxError ? '' : 'err'}" role="status">${n} issue${n === 1 ? '' : 's'} to fix. Highlighted fields need attention.</div>`);
     if (lookupError) notes.push(`<div class="banner" role="status">Could not load accounts and currencies from FireFly III (${esc(lookupError)}). Source account and currency are plain text boxes until this is fixed in Settings.</div>`);
     $('#ui-status').innerHTML = notes.join('');
+    updatePostState();
     return errs;
   }
 
@@ -302,7 +348,16 @@ async function filePage(params = new URLSearchParams()) {
     syncJson();
   }
 
+  const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const fireInput = (el) => el.dispatchEvent(new Event('input', { bubbles: true }));
+
   ui.addEventListener('input', (e) => {
+    if (e.target.dataset.pickFor) {
+      const text = document.getElementById(e.target.dataset.pickFor);
+      text.value = e.target.value;
+      fireInput(text);
+      return;
+    }
     const el = e.target.closest('[data-p]');
     if (!el || el.dataset.act) return;
     const v = el.dataset.kind === 'number' ? M.coerceNumber(el.value) : (el.value === '' ? undefined : el.value);
@@ -310,7 +365,58 @@ async function filePage(params = new URLSearchParams()) {
     apply(el.dataset.p, v);
     refreshErrors();
   });
+  ui.addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.dataset?.kind !== 'date') return;
+    if (el.value.trim().toLowerCase() === 'today') { el.value = todayIso(); fireInput(el); }
+    const pick = el.closest('.date-field')?.querySelector('[data-pick-for]');
+    if (pick) pick.value = /^\d{4}-\d{2}-\d{2}$/.test(el.value) ? el.value : '';
+  });
+  // Copy/Move: pick another source account to send a transaction to.
+  function transferDialog(txPath, kind) {
+    const [gi, , ti] = txPath.split('.').map(Number);
+    const groups = M.groupsOf(model);
+    const from = groups[gi];
+    const fromName = M.isObj(from) && typeof from.source_account === 'string' ? from.source_account.trim() : '';
+    const targets = groups.map((g, i) => ({ i, name: M.isObj(g) && typeof g.source_account === 'string' ? g.source_account.trim() : '' }))
+      .filter((t) => t.i !== gi && !(fromName && t.name === fromName));
+    if (!targets.length) { notify.warning(`There is no other source account to ${kind} to. Add another account first.`); return; }
+    const verb = kind === 'move' ? 'Move' : 'Copy';
+    const dlg = dialog(`<form method="dialog"><h2>${verb} transaction</h2>
+      <label for="xfer-to">${verb} to source account</label>
+      <select id="xfer-to">${targets.map((t) => `<option value="${t.i}">Account ${t.i + 1}${t.name ? `: ${esc(t.name)}` : ' (no name yet)'}</option>`).join('')}</select>
+      <div class="actions"><button class="btn" type="submit">${verb}</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+    $('#cancel', dlg).onclick = () => dlg.close();
+    dlg.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const to = Number($('#xfer-to', dlg).value);
+      const tx = structuredClone(M.groupsOf(model)[gi].transactions[ti]);
+      const dest = M.groupsOf(model)[to];
+      if (!Array.isArray(dest?.transactions)) apply(`${to}.transactions`, []);
+      apply(`${to}.transactions.${M.groupsOf(model)[to].transactions.length}`, tx);
+      if (kind === 'move') apply(txPath, undefined);
+      dlg.close();
+      renderUi();
+      notify.success(`Transaction ${kind === 'move' ? 'moved' : 'copied'} to Account ${to + 1}.`);
+    });
+  }
+
   ui.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-tx-act]');
+    if (t) {
+      const wrap = t.closest('[data-tx]');
+      const menu = t.closest('.menu');
+      if (t.dataset.txAct === 'menu') {
+        e.stopPropagation();
+        document.querySelectorAll('.menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+        const o = menu.classList.toggle('open');
+        t.setAttribute('aria-expanded', o);
+      } else {
+        menu.classList.remove('open');
+        transferDialog(wrap.dataset.tx, t.dataset.txAct);
+      }
+      return;
+    }
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const p = b.dataset.p;
@@ -334,6 +440,7 @@ async function filePage(params = new URLSearchParams()) {
       notify.error(err.message);
     } finally {
       fmt.disabled = mode === 'ui';
+      updatePostState();
     }
   });
 
@@ -353,6 +460,7 @@ async function filePage(params = new URLSearchParams()) {
       loadLookups();
     } else {
       ta.hidden = false; ui.hidden = true; fmt.disabled = false; fmt.hidden = false;
+      updatePostState();
     }
   }
   document.querySelectorAll('.seg-btn').forEach((x) => x.addEventListener('click', () => setMode(x.dataset.mode)));
@@ -401,7 +509,7 @@ async function filePage(params = new URLSearchParams()) {
     currentFmt = format;
     $('#update-template').hidden = false;
     $('h1').textContent = `Post file — ${t.name}`;
-    if (mode === 'ui') { loadModel(); renderUi(); }
+    if (mode === 'ui') { loadModel(); renderUi(); } else updatePostState();
   }
 
   $('#load-template').onclick = async () => {
@@ -436,7 +544,7 @@ async function filePage(params = new URLSearchParams()) {
     if (mode === 'ui' && (Object.keys(M.validate(model)).length || ui.querySelector('[data-orphan="1"]'))) { notify.warning('Fix the highlighted fields first.'); return; }
     const response = await api('POST', '/api/files/post', { content: d.content, format: mode === 'ui' ? 'json' : d.format });
     showTransactionResults(response.results);
-  });
+  }, updatePostState);
 }
 
 async function templatesPage() {

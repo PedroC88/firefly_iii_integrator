@@ -75,7 +75,7 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
           foreignCurrency: transaction.foreign_currency,
         }),
         currency: account.currency,
-        date: transaction.date,
+        date: transaction.date ?? account.date,
         description: transaction.description,
         status: 'failed',
       };
@@ -84,7 +84,7 @@ async function postAccountTransactions(accounts, settings, fetchImpl = fetch, lo
         const body = {
           transactions: [{
             type: FIREFLY_TYPES[transaction.transaction_type],
-            date: transaction.date,
+            date: transaction.date ?? account.date,
             amount: String(transaction.amount),
             description: transaction.description,
             source_name: account.source_account,

@@ -23,7 +23,7 @@ test('keeps the requested AccountTransactionsRequest schema in source', () => {
   assert.equal(accountTransactionsSchema.type, 'array');
   assert.equal(accountTransactionsSchema.items.additionalProperties, false);
   assert.deepEqual(accountTransactionsSchema.items.properties.transactions.items.required, [
-    'destination_account', 'transaction_type', 'amount', 'date', 'description',
+    'destination_account', 'transaction_type', 'amount', 'description',
   ]);
 });
 
@@ -235,4 +235,30 @@ test('fetchLookups returns active asset accounts and enabled currencies across p
   assert.deepStrictEqual(r.currencies, [{ code: 'USD', name: 'Dollar' }]);
   assert.ok(calls.some((c) => c.includes('/api/v1/accounts?type=asset&page=2')));
   await assert.rejects(fetchLookups({ firefly_url: '', firefly_api_key: 'k' }, fetchImpl), /endpoint/);
+});
+
+test('transaction date is optional when the account has a date, and required otherwise', () => {
+  const doc = (accountDate, txDate) => JSON.stringify([{
+    source_account: 'A', currency: 'USD', ...(accountDate && { date: accountDate }),
+    transactions: [{ destination_account: 'B', transaction_type: 'payment', amount: 1, description: 'x', ...(txDate && { date: txDate }) }],
+  }]);
+  assert.ok(parseAndValidate(doc('2026-10-01', null), 'json'));
+  assert.ok(parseAndValidate(doc(null, '2026-10-02'), 'json'));
+  assert.throws(() => parseAndValidate(doc(null, null), 'json'), /missing required property date/);
+});
+
+test('posts the transaction date when given and falls back to the account date', async () => {
+  const bodies = [];
+  const fakeFetch = async (url, options) => {
+    bodies.push(JSON.parse(options.body).transactions[0]);
+    return { ok: true, status: 201, text: async () => '{"data":{"id":1}}' };
+  };
+  const tx = { destination_account: 'B', transaction_type: 'payment', amount: 1, description: 'x' };
+  const results = await postAccountTransactions(
+    [{ source_account: 'A', currency: 'USD', date: '2026-10-01', transactions: [tx, { ...tx, date: '2026-10-09' }] }],
+    { firefly_url: 'https://firefly.example', firefly_api_key: 'k' },
+    fakeFetch
+  );
+  assert.deepEqual(bodies.map((b) => b.date), ['2026-10-01', '2026-10-09']);
+  assert.deepEqual(results.map((r) => r.date), ['2026-10-01', '2026-10-09']);
 });

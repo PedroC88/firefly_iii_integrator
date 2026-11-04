@@ -5,12 +5,12 @@
   else root.TxModel = factory();
 }(typeof self !== 'undefined' ? self : this, function () {
   const TX_TYPES = ['transfer', 'payment'];
-  const GROUP_KEYS = ['source_account', 'currency', 'transactions'];
+  const GROUP_KEYS = ['source_account', 'date', 'currency', 'transactions'];
   const TX_FIELDS = [
     { key: 'destination_account', label: 'Destination account', kind: 'text', required: true },
     { key: 'transaction_type', label: 'Type', kind: 'select', required: true, options: TX_TYPES },
     { key: 'amount', label: 'Amount', kind: 'number', required: true },
-    { key: 'date', label: 'Date', kind: 'date', required: true },
+    { key: 'date', label: 'Date (defaults to the account date)', kind: 'date' },
     { key: 'description', label: 'Description', kind: 'text', required: true },
     { key: 'foreign_amount', label: 'Foreign amount', kind: 'number' },
     { key: 'foreign_currency', label: 'Foreign currency', kind: 'text' },
@@ -56,6 +56,12 @@
         if (g[k] === undefined || g[k] === '') add(`${i}.${k}`, 'Required.');
         else if (typeof g[k] !== 'string') add(`${i}.${k}`, 'Must be text.');
       });
+      const groupDate = g.date !== undefined && g.date !== '';
+      if (g.date === '') add(`${i}.date`, 'Use a real date as YYYY-MM-DD.');
+      if (groupDate) {
+        if (typeof g.date !== 'string') add(`${i}.date`, 'Must be text.');
+        else if (!validDate(g.date)) add(`${i}.date`, 'Use a real date as YYYY-MM-DD.');
+      }
       Object.keys(g).filter((k) => !GROUP_KEYS.includes(k)).forEach((k) => add(`${i}.${k}`, 'Unknown property.'));
       const txs = g.transactions;
       if (!Array.isArray(txs)) { add(`${i}.transactions`, txs === undefined ? 'Required.' : 'Must be a list.'); return; }
@@ -72,6 +78,8 @@
           else if (f.kind === 'select' && !f.options.includes(v)) add(fp, `Must be one of: ${f.options.join(', ')}.`);
           else if (f.kind === 'date' && !validDate(v)) add(fp, 'Use a real date as YYYY-MM-DD.');
         });
+        if (t.date === '') add(`${p}.date`, 'Use a real date as YYYY-MM-DD, or remove it to use the account date.');
+        else if (!groupDate && t.date === undefined) add(`${p}.date`, 'Required: set a date here or on the account.');
         const hasFA = t.foreign_amount !== undefined && t.foreign_amount !== '';
         const hasFC = t.foreign_currency !== undefined && t.foreign_currency !== '';
         if (hasFA && !hasFC) add(`${p}.foreign_currency`, 'Required when a foreign amount is set.');
@@ -101,7 +109,7 @@
     return top;
   }
 
-  const newTransaction = () => ({ destination_account: '', transaction_type: 'payment', amount: 0, date: '', description: '' });
+  const newTransaction = () => ({ destination_account: '', transaction_type: 'payment', amount: 0, description: '' });
   const newGroup = () => ({ source_account: '', currency: '', transactions: [newTransaction()] });
 
   // Text typed in a number box: a real number when it parses, else the raw string (flagged by validate).
