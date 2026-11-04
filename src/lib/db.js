@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS system_settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS templates (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  format TEXT NOT NULL DEFAULT 'json' CHECK (format IN ('json', 'yaml')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, name)
+);
 INSERT INTO system_settings(key, value) VALUES ('allowRegistration', 'false') ON CONFLICT DO NOTHING;
 `;
 

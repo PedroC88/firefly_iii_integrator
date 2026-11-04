@@ -79,6 +79,7 @@ function shell(active, content) {
         <button class="icon-btn" type="button" id="user-btn" aria-haspopup="true" aria-expanded="false">👤 Account ▾</button>
         <div class="menu-list" role="menu">
           <div class="menu-label">${esc(me.email)}</div><hr>
+          <a href="#/templates" role="menuitem">Templates</a>
           <a href="#/settings" role="menuitem">Settings</a>
           <a href="#/profile" role="menuitem">Profile</a>
           ${me.isAdmin ? '<hr><a href="#/admin/users" role="menuitem">Manage users</a><a href="#/admin/settings" role="menuitem">System settings</a>' : ''}
@@ -152,23 +153,34 @@ function pdfsPage() {
   shell('pdfs', '<h1>Post PDFs</h1><div class="banner" role="status">Not implemented</div>');
 }
 
-function filePage() {
+async function filePage(params = new URLSearchParams()) {
   const M = window.TxModel;
   shell('file', `<h1>Post file</h1>
     <form id="f">
       <div class="row between toolbar">
         <div class="row">
           <div class="seg" role="group" aria-label="Editor mode">
-            <button type="button" class="seg-btn" data-mode="json" aria-pressed="true">JSON</button>
-            <button type="button" class="seg-btn" data-mode="ui" aria-pressed="false">UI</button>
+            <button type="button" class="seg-btn" data-mode="ui" aria-pressed="false">Easy</button>
+            <button type="button" class="seg-btn" data-mode="json" aria-pressed="true">Expert</button>
           </div>
           <select name="format" aria-label="File format"><option value="json">json</option><option value="yaml">yaml</option></select>
         </div>
-        <button class="btn" type="submit">Post</button>
+        <div class="menu split-btn">
+          <button class="btn" type="submit">Post</button>
+          <button class="btn split-arrow" type="button" id="post-more" aria-haspopup="menu" aria-expanded="false" aria-label="More post options">&#9662;</button>
+          <div class="menu-list" role="menu">
+            <button type="button" role="menuitem" id="load-template">Load template</button>
+            <button type="button" role="menuitem" id="update-template" hidden>Update template</button>
+            <button type="button" role="menuitem" id="save-template">Save as template</button>
+          </div>
+        </div>
       </div>
       <textarea class="editor" name="content" aria-label="File content" spellcheck="false" placeholder="Paste or type your JSON or YAML here"></textarea>
       <div id="ui" class="tx-ui" hidden></div>
     </form>`);
+  const postMenu = $('.split-btn');
+  $('#post-more').onclick = (e) => { e.stopPropagation(); const o = postMenu.classList.toggle('open'); e.currentTarget.setAttribute('aria-expanded', o); };
+  let template = null;
   const ta = $('textarea');
   const ui = $('#ui');
   const fmt = $('select[name=format]');
@@ -176,6 +188,7 @@ function filePage() {
   let model = [];
   let syntaxError = null;
   let repaired = false;
+  let pristine = false;
   let lookups = null;
   let lookupError = null;
 
@@ -193,6 +206,7 @@ function filePage() {
 
   function loadModel() {
     const r = M.parseText(ta.value);
+    pristine = !!r.empty;
     if (r.ok) { model = r.value; syntaxError = null; repaired = !!r.repaired; } else syntaxError = r.message;
   }
 
@@ -262,7 +276,7 @@ function filePage() {
   }
 
   function refreshErrors() {
-    const errs = M.validate(model);
+    const errs = pristine ? {} : M.validate(model);
     ui.querySelectorAll('select[data-orphan="1"]').forEach((el) => { if (!errs[el.dataset.p]) errs[el.dataset.p] = 'Not found in FireFly III. Pick one from the list.'; });
     ui.querySelectorAll('[data-err]').forEach((el) => {
       const m = errs[el.dataset.err];
@@ -284,6 +298,7 @@ function filePage() {
 
   function apply(path, value) {
     model = M.setPath(model, path, value);
+    pristine = false;
     syncJson();
   }
 
@@ -305,21 +320,116 @@ function filePage() {
     renderUi();
   });
 
-  function setMode(next) {
+  let currentFmt = fmt.value;
+  fmt.addEventListener('change', async () => {
+    const to = fmt.value;
+    const from = currentFmt;
+    fmt.disabled = true;
+    try {
+      const r = await api('POST', '/api/files/convert', { from, to, content: ta.value });
+      ta.value = r.content;
+      currentFmt = to;
+    } catch (err) {
+      fmt.value = from;
+      notify.error(err.message);
+    } finally {
+      fmt.disabled = mode === 'ui';
+    }
+  });
+
+  async function setMode(next) {
     if (next === mode) return;
+    if (next === 'ui' && currentFmt !== 'json') {
+      try { ta.value = (await api('POST', '/api/files/convert', { from: currentFmt, to: 'json', content: ta.value })).content; }
+      catch (err) { notify.error(err.message); return; }
+      fmt.value = 'json'; currentFmt = 'json';
+    }
     mode = next;
     document.querySelectorAll('.seg-btn').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.mode === mode)));
     if (mode === 'ui') {
-      fmt.value = 'json';
       loadModel();
-      ta.hidden = true; ui.hidden = false; fmt.disabled = true;
+      ta.hidden = true; ui.hidden = false; fmt.disabled = true; fmt.hidden = true;
       renderUi();
       loadLookups();
     } else {
-      ta.hidden = false; ui.hidden = true; fmt.disabled = false;
+      ta.hidden = false; ui.hidden = true; fmt.disabled = false; fmt.hidden = false;
     }
   }
   document.querySelectorAll('.seg-btn').forEach((x) => x.addEventListener('click', () => setMode(x.dataset.mode)));
+
+  const templatePayload = (name) => ({ name, format: mode === 'ui' ? 'json' : fmt.value, content: ta.value });
+  const requireContent = () => { if (ta.value.trim()) return true; notify.warning('Enter some content first.'); return false; };
+
+  $('#save-template').onclick = () => {
+    postMenu.classList.remove('open');
+    if (!requireContent()) return;
+    const dlg = dialog(`<form id="tn" method="dialog"><h2>Save as template</h2>
+      <label for="tname">Template name</label><input id="tname" name="name" required maxlength="100" autocomplete="off" value="${esc(template?.name ?? '')}">
+      <div class="actions"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+    $('#cancel', dlg).onclick = () => dlg.close();
+    $('#tn', dlg).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('button[type=submit]', dlg);
+      btn.disabled = true;
+      try {
+        template = await api('POST', '/api/templates', templatePayload($('#tname', dlg).value));
+        $('#update-template').hidden = false;
+        dlg.close();
+        notify.success('Template saved.');
+      } catch (err) { notify.error(err.message); btn.disabled = false; }
+    });
+  };
+
+  $('#update-template').onclick = async () => {
+    postMenu.classList.remove('open');
+    if (!template || !requireContent()) return;
+    try {
+      template = await api('PUT', `/api/templates/${template.id}`, templatePayload(template.name));
+      notify.success(`Template "${template.name}" updated.`);
+    } catch (err) { notify.error(err.message); }
+  };
+
+  async function applyTemplate(t) {
+    let { content, format } = t;
+    if (mode === 'ui' && format !== 'json') {
+      content = (await api('POST', '/api/files/convert', { from: format, to: 'json', content })).content;
+      format = 'json';
+    }
+    template = t;
+    ta.value = content;
+    fmt.value = format;
+    currentFmt = format;
+    $('#update-template').hidden = false;
+    $('h1').textContent = `Post file — ${t.name}`;
+    if (mode === 'ui') { loadModel(); renderUi(); }
+  }
+
+  $('#load-template').onclick = async () => {
+    postMenu.classList.remove('open');
+    let list;
+    try { list = await api('GET', '/api/templates'); } catch (err) { notify.error(err.message); return; }
+    if (!list.length) { notify.info('You have no templates yet.'); return; }
+    const dlg = dialog(`<form id="lt" method="dialog"><h2>Load template</h2>
+      <label for="tsel">Template</label>
+      <select id="tsel">${list.map((t) => `<option value="${t.id}"${template?.id === t.id ? ' selected' : ''}>${esc(t.name)} (${esc(t.format)})</option>`).join('')}</select>
+      <p class="hint">This replaces the current content.</p>
+      <div class="actions"><button class="btn" type="submit">Load</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+    $('#cancel', dlg).onclick = () => dlg.close();
+    $('#lt', dlg).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await applyTemplate(await api('GET', `/api/templates/${$('#tsel', dlg).value}`));
+        dlg.close();
+      } catch (err) { notify.error(err.message); }
+    });
+  };
+
+  await setMode('ui');
+  const templateId = params.get('template');
+  if (templateId) {
+    try { await applyTemplate(await api('GET', `/api/templates/${encodeURIComponent(templateId)}`)); }
+    catch (err) { notify.error(err.message); }
+  }
 
   onSubmit($('#f'), async (d) => {
     if (!d.content.trim()) { notify.warning('Enter some content first.'); return; }
@@ -327,6 +437,41 @@ function filePage() {
     const response = await api('POST', '/api/files/post', { content: d.content, format: mode === 'ui' ? 'json' : d.format });
     showTransactionResults(response.results);
   });
+}
+
+async function templatesPage() {
+  const list = await api('GET', '/api/templates');
+  shell('', `<h1>Templates</h1>
+    ${list.length ? `<div class="card table-wrap"><table><thead><tr><th>Name</th><th>Format</th><th>Last updated</th><th></th></tr></thead><tbody>
+    ${list.map((t) => `<tr data-id="${t.id}"><td>${esc(t.name)}</td><td><span class="badge">${esc(t.format)}</span></td><td>${new Date(t.updatedAt).toLocaleString()}</td>
+      <td class="row"><a class="btn small secondary" href="#/file?template=${t.id}">Edit</a>
+      <button class="btn small secondary" type="button" data-act="rename">Rename</button>
+      <button class="btn small danger" type="button" data-act="del">Delete</button></td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="banner" role="status">No templates yet. Use "Save as template" from the Post file page.</div>'}`);
+  root.querySelectorAll('[data-act]').forEach((btn) => btn.addEventListener('click', async () => {
+    const row = btn.closest('[data-id]');
+    const id = row.dataset.id;
+    const t = list.find((x) => x.id === id);
+    if (btn.dataset.act === 'del') {
+      if (!(await confirmDialog(`Delete template "${t.name}"?`))) return;
+      try { await api('DELETE', `/api/templates/${id}`); notify.success('Template deleted.'); await templatesPage(); } catch (err) { notify.error(err.message); }
+    } else {
+      const dlg = dialog(`<form id="rn" method="dialog"><h2>Rename template</h2><label for="rname">Template name</label>
+        <input id="rname" required maxlength="100" autocomplete="off" value="${esc(t.name)}">
+        <div class="actions"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" id="cancel">Cancel</button></div></form>`);
+      $('#cancel', dlg).onclick = () => dlg.close();
+      $('#rn', dlg).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          const full = await api('GET', `/api/templates/${id}`);
+          await api('PUT', `/api/templates/${id}`, { name: $('#rname', dlg).value, format: full.format, content: full.content });
+          dlg.close();
+          notify.success('Template renamed.');
+          await templatesPage();
+        } catch (err) { notify.error(err.message); }
+      });
+    }
+  }));
 }
 
 function settingsPage() {
@@ -472,13 +617,13 @@ function forbidden() { notify.error('Global admin access required.'); location.h
 
 // ---- Router ----
 const routes = {
-  '/pdfs': pdfsPage, '/file': filePage, '/settings': settingsPage, '/profile': profilePage,
+  '/pdfs': pdfsPage, '/file': filePage, '/templates': templatesPage, '/settings': settingsPage, '/profile': profilePage,
   '/admin/users': adminUsersPage, '/admin/settings': adminSettingsPage,
 };
 const publicRoutes = { '/login': loginPage, '/register': registerPage };
 
 async function route() {
-  const path = location.hash.slice(1) || '/';
+  const [path, query = ''] = (location.hash.slice(1) || '/').split('?');
   try {
     if (!me) {
       if (publicRoutes[path]) return await publicRoutes[path]();
@@ -486,7 +631,7 @@ async function route() {
       return;
     }
     if (path === '/' || publicRoutes[path]) { location.replace('#/' + me.defaultTab); return; }
-    await (routes[path] || (() => { location.replace('#/' + me.defaultTab); }))();
+    await (routes[path] || (() => { location.replace('#/' + me.defaultTab); }))(new URLSearchParams(query));
   } catch (err) {
     if (err.status === 401) { me = null; location.hash = '#/login'; } else notify.error(err.message);
   }

@@ -1,6 +1,6 @@
 'use strict';
 const { httpError } = require('../lib/validation');
-const { parseAndValidate } = require('../lib/account-transactions');
+const { parseAndValidate, convertFormat } = require('../lib/account-transactions');
 const { postAccountTransactions, fetchLookups } = require('../lib/firefly');
 const { decrypt } = require('../lib/security');
 const { createTrustedFetch } = require('../lib/certs');
@@ -21,6 +21,21 @@ module.exports = async function (app) {
       await trusted.close();
     }
   });
+
+  app.post(
+    '/api/files/convert',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['from', 'to', 'content'],
+          properties: { from: { enum: ['json', 'yaml'] }, to: { enum: ['json', 'yaml'] }, content: { type: 'string', maxLength: 1000000 } },
+        },
+      },
+    },
+    async (req) => ({ content: convertFormat(req.body.content, req.body.from, req.body.to) })
+  );
 
   app.post(
     '/api/files/post',
