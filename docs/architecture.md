@@ -15,14 +15,17 @@
 | POST | `/api/auth/register`, `/login`, `/logout` | public / session |
 | GET | `/api/me` | user |
 | PUT | `/api/me/profile`, `/api/me/settings`, `/api/me/password` | user |
-| POST | `/api/files/post` `{format: json\|yaml, content}` | user; validates `AccountTransactionsRequest`, converts YAML to JSON, posts each transfer to FireFly III and returns per-transaction results |
+| POST | `/api/files/post` `{format: json\|yaml, content}` | user; validates `AccountTransactionsRequest`, converts YAML to JSON, posts each transaction to FireFly III and returns per-transaction results |
+| POST | `/api/files/convert` `{from, to, content}` | user; converts content between json and yaml without schema validation |
+| GET/POST | `/api/templates` | user; list / create the caller's templates |
+| GET/PUT/DELETE | `/api/templates/:id` | user; only the owner's templates are reachable |
 | GET/PUT | `/api/admin/settings` | global admin |
 | GET/POST | `/api/admin/users` | global admin |
 | PATCH/DELETE | `/api/admin/users/:id`, POST `/:id/password` | global admin |
 
 Registration is open when there are no users (to create the first admin) or when `allowRegistration` is true. The last global admin cannot be demoted or deleted.
 
-The account transaction request schema is defined in `src/schemas/account-transactions.schema.json` (loaded by `src/lib/account-transactions.js`). Files must contain an array with at least one source account and at least one transaction per account. Invalid YAML/JSON or schema errors return HTTP 400 before any FireFly III requests are sent. Valid entries are posted individually to `/api/v1/transactions` as FireFly III `transfer` transactions (mapping the source/destination account names and currency code; optional `foreign_amount` + `foreign_currency` — required together — are sent for cross-currency transfers); one failure does not stop subsequent transactions. Results use `succeeded`/`failed` statuses and are displayed in the results dialog. Connection errors are logged without API keys and return guidance for common causes such as localhost, DNS, refused connections, and TLS verification.
+The account transaction request schema is defined in `src/schemas/account-transactions.schema.json` (loaded by `src/lib/account-transactions.js`). Files must contain an array with at least one source account and at least one transaction per account. A transaction's `date` is optional when its account has a `date`, which is used as the fallback; a transaction with neither is rejected. Invalid YAML/JSON or schema errors return HTTP 400 before any FireFly III requests are sent. Valid entries are posted individually to `/api/v1/transactions` as FireFly III `transfer` (or `withdrawal` for `payment`) transactions (mapping the source/destination account names and currency code; optional `foreign_amount` + `foreign_currency` — required together — are sent for cross-currency transfers); one failure does not stop subsequent transactions. Results use `succeeded`/`failed` statuses and are displayed in the results dialog. Connection errors are logged without API keys and return guidance for common causes such as localhost, DNS, refused connections, and TLS verification.
 
 ## Adding system settings
 Add a key to `system_settings` (see `src/lib/db.js`), expose it in `routes/admin.js`, and add a control in `adminSettingsPage` in `src/public/app.js`.
