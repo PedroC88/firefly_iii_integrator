@@ -95,9 +95,20 @@ input.invalid,select.invalid{border-color:var(--err);background:var(--err-bg)}
 #ui-status .banner{margin-bottom:.75rem}
 [hidden]{display:none!important}
 .menu-list [hidden]{display:none}
-.tx-group{border-left:6px solid var(--primary);box-shadow:0 2px 8px #0002;margin-bottom:2.25rem;padding-top:0;overflow:hidden}
-.tx-group>.row.between:first-child{margin:0 -1.25rem .75rem;padding:.7rem 1.25rem;background:color-mix(in srgb,var(--primary) 14%,var(--surface));border-bottom:1px solid var(--border)}
+.tx-group{border-left:6px solid var(--primary);box-shadow:0 2px 8px #0002;margin-bottom:2.25rem;padding-top:0}
+.tx-group>.row.between:first-child{margin:0 -1.25rem .75rem;padding:.7rem 1.25rem;background:color-mix(in srgb,var(--primary) 14%,var(--surface));border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
 .tx-group>.row.between:first-child h2{margin:0}
 .tx-group.has-error{border-left-color:var(--err)}
 .tx-group .tx-item{background:var(--bg);border-left:3px solid var(--border)}
 .tx-group .tx-item.has-error{border-left:4px solid var(--err)}
+.date-field{display:flex;gap:.4rem;align-items:stretch}
+.date-field>input[type=text]{flex:1;min-width:0}
+.date-pick{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:44px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);cursor:pointer}
+.date-pick input[type=date]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
+.date-pick input[type=date]::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+.date-pick:focus-within{outline:2px solid var(--primary);outline-offset:1px}
+.tx-actions{display:flex;gap:.5rem;align-items:center;margin-left:auto}
+.tx-actions .menu-list{min-width:140px}
+.trash-btn{color:var(--danger);border-color:var(--danger);display:inline-flex;align-items:center;justify-content:center;padding:.3rem .5rem}
+.trash-btn:hover{background:var(--danger);color:var(--primary-text)}
+.split-btn .btn.secondary.split-arrow{border-left-color:var(--border)}

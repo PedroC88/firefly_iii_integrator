@@ -4,7 +4,9 @@ A lightweight, self-hosted web app that posts transactions to your [FireFly III]
 
 ## Features
 
-- **Post file:** paste JSON or YAML in **Expert** mode, or use the form-based **Easy** mode (default). Switching between JSON and YAML converts the content for you.
+- **Post file:** use the form-based **Easy** mode (default) or paste JSON/YAML in **Expert** mode. Switching between JSON and YAML converts the content for you, and the Post button stays disabled until the content is valid.
+- **Dates:** set a date per transaction, or once on the source account as a default. Dates can be typed (including `today`) or picked from a mobile-friendly date picker.
+- **Copy / move:** copy or move a transaction to another source account.
 - **Validation before posting:** input is checked against a schema, and nothing is sent if it's invalid.
 - **Transfers and payments:** transfers move money between your own accounts. Payments go to external parties, and the expense account is created automatically if it doesn't exist.
 - **Templates:** save the current content as a named template, load it later, and rename, edit or delete it from the **Templates** page.

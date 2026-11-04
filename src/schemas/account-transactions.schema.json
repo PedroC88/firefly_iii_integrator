@@ -7,6 +7,7 @@
     "type": "object",
     "properties": {
       "source_account": { "type": "string" },
+      "date": { "type": "string", "format": "date", "description": "Default date for the account's transactions that have no date of their own" },
       "currency": { "type": "string" },
       "transactions": {
         "type": "array",
@@ -14,25 +15,34 @@
         "items": {
           "type": "object",
           "properties": {
+
+
             "destination_account": { "type": "string" },
-            "transaction_type": { "type": "string", "enum": ["transfer", "payment"] },
+            "transaction_type": { "type": "string", "enum": [ "transfer", "payment" ] },
             "amount": { "type": "number" },
             "foreign_amount": { "type": "number" },
             "foreign_currency": { "type": "string" },
-            "date": { "type": "string", "format": "date" },
+
+            "date": { "type": "string", "format": "date", "description": "Optional when the account has a date; takes precedence over it" },
             "description": { "type": "string" },
             "notes": { "type": "string" }
           },
-          "required": ["destination_account", "transaction_type", "amount", "date", "description"],
+
+          "required": [ "destination_account", "transaction_type", "amount", "description" ],
           "dependencies": {
-            "foreign_amount": ["foreign_currency"],
-            "foreign_currency": ["foreign_amount"]
+
+
+            "foreign_amount": [ "foreign_currency" ],
+            "foreign_currency": [ "foreign_amount" ]
           },
           "additionalProperties": false
         }
       }
     },
-    "required": ["source_account", "currency", "transactions"],
+
+    "required": [ "source_account", "currency", "transactions" ],
+    "if": { "required": [ "date" ] },
+    "else": { "properties": { "transactions": { "items": { "required": [ "date" ] } } } },
     "additionalProperties": false
   }
 }

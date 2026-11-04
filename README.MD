@@ -8,7 +8,9 @@ A fast, responsive Node.js web app (light/dark themes) that will post data to a 
 - The first account created becomes the **global admin**.
 - Global admins manage users and system settings (currently: *allow new registration*, off by default).
 - Every user has Settings (password, FireFly III endpoint + API key, default tab) and an optional Profile.
-- Tabs: **Post file** (default; JSON/YAML editor with a JSON/UI toggle; YAML is converted to JSON, validated against the account-transactions schema in `src/schemas/account-transactions.schema.json`, then each transaction is posted separately to the configured FireFly III endpoint). A results dialog summarizes successes and failures; invalid input is rejected before posting. **Post PDFs** is a placeholder.
+- Tabs: **Post file** (default; **Easy** form view (default) or **Expert** JSON/YAML editor; switching the format converts the content; the Post button is only enabled while the content is valid; YAML is converted to JSON, validated against the account-transactions schema in `src/schemas/account-transactions.schema.json`, then each transaction is posted separately to the configured FireFly III endpoint). A results dialog summarizes successes and failures; invalid input is rejected before posting. **Post PDFs** is a placeholder.
+- **Templates**: *Save as template* in the Post button's dropdown stores the current content under a name; *Load template* restores it. Manage (edit, rename, delete) them from **Account → Templates**. Templates are private to each user.
+- Easy view: each source account is a card with its transactions; transactions can be copied or moved to another source account, and dates can be typed (`YYYY-MM-DD` or `today`) or picked from a date picker.
 - Global notifications: success (green), warning (yellow), error (red), info (blue).
 - Sessions: random 256-bit token in an `HttpOnly`, `Secure`, `SameSite=Lax` (`__Host-` prefixed) cookie; only a SHA-256 hash is stored server-side, with a sliding 30-day expiry.
 
@@ -51,7 +53,7 @@ The file is an array of source accounts, each with its transactions. Every trans
 ]
 ```
 
-Fields per transaction: `destination_account`, `transaction_type`, `amount`, `date` (`YYYY-MM-DD`) and `description` are required; `notes` is optional; `foreign_amount` and `foreign_currency` are optional but must be given together. `source_account` and `currency` (applies to all its transactions) are required per account. Unknown properties and any other `transaction_type` value are rejected before anything is posted. The full schema is in [src/schemas/account-transactions.schema.json](src/schemas/account-transactions.schema.json).
+Fields per transaction: `destination_account`, `transaction_type`, `amount` and `description` are required; `date` (`YYYY-MM-DD`) is optional when the source account has its own `date`, which is then used for every transaction without one (a transaction's own date always wins, and a transaction with neither is rejected); `notes` is optional; `foreign_amount` and `foreign_currency` are optional but must be given together. `source_account` and `currency` (applies to all its transactions) are required per account; `date` is optional per account. Unknown properties and any other `transaction_type` value are rejected before anything is posted. The full schema is in [src/schemas/account-transactions.schema.json](src/schemas/account-transactions.schema.json).
 
 ## Installation
 
@@ -152,7 +154,7 @@ volumes:
   db_data:
 ```
 
-To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedrocsanchez/firefly-iii-integrator:0.2.0 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
+To pin a version, set `APP_IMAGE`, e.g. `APP_IMAGE=pedrocsanchez/firefly-iii-integrator:0.3.2 docker compose up -d`. Update with `docker compose pull app && docker compose up -d app` (data in the `db_data` volume is kept).
 
 ### Option 3: build from source
 

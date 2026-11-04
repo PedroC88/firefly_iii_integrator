@@ -38,3 +38,14 @@ test('setPath edits, deletes and coerces containers', () => {
   assert.strictEqual(M.coerceNumber('abc'), 'abc');
   assert.strictEqual(M.coerceNumber(' '), undefined);
 });
+
+test('validate: transaction date is optional with an account date and an error without either', () => {
+  const g = M.newGroup();
+  Object.assign(g, { source_account: 'A', currency: 'USD' });
+  Object.assign(g.transactions[0], { destination_account: 'B', amount: 5, description: 'x' });
+  assert.ok(M.validate([g])['0.transactions.0.date']);
+  g.date = '2026-02-28';
+  assert.deepStrictEqual(M.validate([g]), {});
+  g.date = '2026-02-30';
+  assert.ok(M.validate([g])['0.date']);
+});
